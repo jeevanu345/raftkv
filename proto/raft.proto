@@ -1,0 +1,89 @@
+syntax = "proto3";
+
+package raftkv.raft.v1;
+
+// Wire-level Raft RPCs. Mirrors the message types in raft-core::message but
+// preserves stable field numbering for cross-version compatibility.
+
+service Raft {
+  rpc AppendEntries (AppendEntriesRequest) returns (AppendEntriesResponse);
+  rpc RequestVote   (RequestVoteRequest)   returns (RequestVoteResponse);
+  rpc PreVote       (RequestVoteRequest)   returns (RequestVoteResponse);
+  rpc InstallSnapshot (stream InstallSnapshotChunk) returns (InstallSnapshotResponse);
+  rpc TimeoutNow    (TimeoutNowRequest)    returns (TimeoutNowResponse);
+}
+
+message LogEntry {
+  uint64 term  = 1;
+  uint64 index = 2;
+  EntryType entry_type = 3;
+  bytes data = 4;
+}
+
+enum EntryType {
+  ENTRY_TYPE_NORMAL        = 0;
+  ENTRY_TYPE_NOOP          = 1;
+  ENTRY_TYPE_CONFIG_JOINT  = 2;
+  ENTRY_TYPE_CONFIG_NEW    = 3;
+}
+
+message AppendEntriesRequest {
+  uint64 term = 1;
+  uint64 leader_id = 2;
+  uint64 prev_log_index = 3;
+  uint64 prev_log_term = 4;
+  repeated LogEntry entries = 5;
+  uint64 leader_commit = 6;
+  bytes  request_id = 7;
+}
+
+message AppendEntriesResponse {
+  uint64 term = 1;
+  bool   success = 2;
+  // Conflict information for fast back-off (Ongaro thesis §3.5)
+  uint64 conflict_index = 3;
+  uint64 conflict_term  = 4;
+  uint64 last_log_index = 5;
+  bytes  request_id = 6;
+}
+
+message RequestVoteRequest {
+  uint64 term = 1;
+  uint64 candidate_id = 2;
+  uint64 last_log_index = 3;
+  uint64 last_log_term = 4;
+  bool   pre_vote = 5;
+  bytes  request_id = 6;
+}
+
+message RequestVoteResponse {
+  uint64 term = 1;
+  bool   vote_granted = 2;
+  bytes  request_id = 3;
+}
+
+message InstallSnapshotChunk {
+  uint64 term = 1;
+  uint64 leader_id = 2;
+  uint64 last_included_index = 3;
+  uint64 last_included_term = 4;
+  uint64 offset = 5;
+  bytes  data = 6;
+  bool   done = 7;
+  bytes  config = 8;
+  bytes  request_id = 9;
+}
+
+message InstallSnapshotResponse {
+  uint64 term = 1;
+  bytes  request_id = 2;
+}
+
+message TimeoutNowRequest {
+  uint64 term = 1;
+  uint64 leader_id = 2;
+}
+
+message TimeoutNowResponse {
+  bool accepted = 1;
+}

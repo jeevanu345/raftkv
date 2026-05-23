@@ -1,0 +1,48 @@
+{
+  "title": "raftkv",
+  "uid": "raftkv-overview",
+  "schemaVersion": 38,
+  "tags": ["raftkv", "raft"],
+  "timezone": "browser",
+  "time": { "from": "now-1h", "to": "now" },
+  "refresh": "10s",
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Cluster leader",
+      "id": 1,
+      "targets": [
+        { "expr": "max by(node_id) (raftkv_role{role=\"leader\"})", "refId": "A" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Term",
+      "id": 2,
+      "targets": [{ "expr": "raftkv_current_term", "refId": "A" }]
+    },
+    {
+      "type": "timeseries",
+      "title": "Commit / Applied indices",
+      "id": 3,
+      "targets": [
+        { "expr": "raftkv_commit_index", "refId": "A" },
+        { "expr": "raftkv_applied_index", "refId": "B" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Append latency p99 (ms)",
+      "id": 4,
+      "targets": [
+        { "expr": "histogram_quantile(0.99, rate(raftkv_append_latency_ms_bucket[1m]))", "refId": "A" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Election count",
+      "id": 5,
+      "targets": [{ "expr": "rate(raftkv_election_started_total[5m])", "refId": "A" }]
+    }
+  ]
+}

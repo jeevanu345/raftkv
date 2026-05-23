@@ -1,0 +1,10 @@
+apiVersion: v2
+name: raftkv
+description: A Raft-replicated KV store with a Redis-compatible (RESP) interface.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+sources:
+  - https://github.com/example/raftkv
+maintainers:
+  - name: raftkv contributors

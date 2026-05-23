@@ -1,0 +1,54 @@
+version: "3.8"
+
+x-raftkv: &raftkv
+  build: .
+  image: raftkv:dev
+  restart: unless-stopped
+
+services:
+  node1:
+    <<: *raftkv
+    container_name: raftkv-node1
+    environment:
+      - RAFTKV_CONFIG=/etc/raftkv/node1.toml
+      - RUST_LOG=info,raftkv=info
+    volumes:
+      - ./deploy/node1.toml:/etc/raftkv/node1.toml:ro
+      - node1-data:/data
+    ports:
+      - "7001:7001"
+      - "6379:6379"
+      - "9101:9100"
+
+  node2:
+    <<: *raftkv
+    container_name: raftkv-node2
+    environment:
+      - RAFTKV_CONFIG=/etc/raftkv/node2.toml
+      - RUST_LOG=info,raftkv=info
+    volumes:
+      - ./deploy/node2.toml:/etc/raftkv/node2.toml:ro
+      - node2-data:/data
+    ports:
+      - "7002:7002"
+      - "6380:6379"
+      - "9102:9100"
+
+  node3:
+    <<: *raftkv
+    container_name: raftkv-node3
+    environment:
+      - RAFTKV_CONFIG=/etc/raftkv/node3.toml
+      - RUST_LOG=info,raftkv=info
+    volumes:
+      - ./deploy/node3.toml:/etc/raftkv/node3.toml:ro
+      - node3-data:/data
+    ports:
+      - "7003:7003"
+      - "6381:6379"
+      - "9103:9100"
+
+volumes:
+  node1-data: {}
+  node2-data: {}
+  node3-data: {}
