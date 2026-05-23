@@ -1,0 +1,20 @@
+[package]
+name = "kv-state-machine"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Deterministic KV state machine applied from the committed Raft log."
+
+[dependencies]
+raft-core = { path = "../raft-core" }
+serde = { workspace = true }
+bincode = { workspace = true }
+bytes = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+sled = { workspace = true }
+sha2 = { workspace = true }
+parking_lot = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

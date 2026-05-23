@@ -1,0 +1,21 @@
+[package]
+name = "raft-storage"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Durable storage backend (segmented log + sled meta) for raft-core."
+
+[dependencies]
+raft-core = { path = "../raft-core" }
+serde = { workspace = true }
+bincode = { workspace = true }
+bytes = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+crc32c = { workspace = true }
+sled = { workspace = true }
+parking_lot = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+proptest = { workspace = true }

@@ -1,0 +1,21 @@
+[package]
+name = "raft-net"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "tonic gRPC transport layer for Raft RPCs."
+
+[dependencies]
+raft-core = { path = "../raft-core" }
+tokio = { workspace = true }
+tonic = { workspace = true }
+prost = { workspace = true }
+bytes = { workspace = true }
+async-trait = { workspace = true }
+futures = { workspace = true }
+tracing = { workspace = true }
+thiserror = { workspace = true }
+
+[build-dependencies]
+tonic-build = { workspace = true }
+protoc-bin-vendored = "3"

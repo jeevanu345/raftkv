@@ -1,0 +1,17 @@
+[package]
+name = "linearizability-checker"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Wing-and-Gong style linearizability checker for KV histories."
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }

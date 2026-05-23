@@ -1,0 +1,31 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "raftkv.fullname" . }}
+  labels:
+    app.kubernetes.io/name: {{ include "raftkv.name" . }}
+spec:
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: {{ include "raftkv.name" . }}
+  ports:
+    - name: raft
+      port: {{ .Values.service.raftPort }}
+    - name: client
+      port: {{ .Values.service.clientPort }}
+    - name: metrics
+      port: {{ .Values.service.metricsPort }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "raftkv.fullname" . }}-client
+  labels:
+    app.kubernetes.io/name: {{ include "raftkv.name" . }}
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: {{ include "raftkv.name" . }}
+  ports:
+    - name: client
+      port: {{ .Values.service.clientPort }}

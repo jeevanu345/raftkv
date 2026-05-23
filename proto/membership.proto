@@ -1,0 +1,49 @@
+syntax = "proto3";
+
+package raftkv.membership.v1;
+
+service Membership {
+  rpc AddServer (AddServerRequest) returns (AddServerResponse);
+  rpc RemoveServer (RemoveServerRequest) returns (RemoveServerResponse);
+  rpc TransferLeadership (TransferLeadershipRequest) returns (TransferLeadershipResponse);
+}
+
+message Server {
+  uint64 id = 1;
+  string addr = 2;
+  bool   voter = 3;
+}
+
+message AddServerRequest {
+  Server server = 1;
+}
+
+message AddServerResponse {
+  Status status = 1;
+  string leader_hint = 2;
+}
+
+message RemoveServerRequest {
+  uint64 id = 1;
+}
+
+message RemoveServerResponse {
+  Status status = 1;
+  string leader_hint = 2;
+}
+
+message TransferLeadershipRequest {
+  uint64 target_id = 1;
+}
+
+message TransferLeadershipResponse {
+  Status status = 1;
+}
+
+enum Status {
+  STATUS_UNSPECIFIED = 0;
+  STATUS_OK = 1;
+  STATUS_NOT_LEADER = 2;
+  STATUS_TIMEOUT = 3;
+  STATUS_REJECTED = 4;
+}

@@ -1,0 +1,39 @@
+image:
+  repository: raftkv
+  tag: "0.1.0"
+  pullPolicy: IfNotPresent
+
+replicas: 3
+
+service:
+  raftPort: 7001
+  clientPort: 6379
+  metricsPort: 9100
+
+persistence:
+  enabled: true
+  storageClassName: ""
+  size: 20Gi
+
+resources:
+  requests:
+    cpu: "200m"
+    memory: "256Mi"
+  limits:
+    cpu: "2"
+    memory: "2Gi"
+
+raft:
+  electionTimeoutMs: 300
+  heartbeatMs: 50
+  tickMs: 10
+  snapshotEntriesThreshold: 10000
+  preVote: true
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 2
+
+serviceMonitor:
+  enabled: false
+  interval: 15s
