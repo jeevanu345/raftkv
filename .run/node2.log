@@ -1,0 +1,5 @@
+[2m2026-05-28T18:58:13.659142Z[0m [32m INFO[0m [2mraftkv_server[0m[2m:[0m starting raftkv-server [3mnode[0m[2m=[0m2 [3mraft[0m[2m=[0m127.0.0.1:7002 [3mclient[0m[2m=[0m127.0.0.1:6380
+Error: sled error: IO error: could not acquire lock on "/Users/jeevanu/Desktop/PROJECTSS/raftkv/.run/data/node2/meta/db": Os { code: 35, kind: WouldBlock, message: "Resource temporarily unavailable" }
+
+Caused by:
+    IO error: could not acquire lock on "/Users/jeevanu/Desktop/PROJECTSS/raftkv/.run/data/node2/meta/db": Os { code: 35, kind: WouldBlock, message: "Resource temporarily unavailable" }
