@@ -17,13 +17,14 @@ use async_trait::async_trait;
 use kv_state_machine::{Command, KvStateMachine, Response};
 use parking_lot::Mutex;
 use raft_core::{
-    Action, ConfigChange, Entry, EntryKind, Message, MetricEvent, NodeId, ProposeError,
-    RaftConfig, RaftLog, RaftNode, Role,
+    Action, ConfigChange, Entry, EntryKind, Message, MetricEvent, NodeId, ProposeError, RaftConfig,
+    RaftLog, RaftNode, Role,
 };
 use raft_net::{client::PeerClient, server::MessageProcessor, Inbox, InboxTx};
 use raft_storage::{MetaStore, SegmentedLog, SnapshotMeta, SnapshotStore};
-use resp_server::handler::{CommandHandler, ProposeFailure};
 use resp_server::codec::RespFrame;
+use resp_server::handler::{CommandHandler, ProposeFailure};
+use serde_json::{json, Value};
 use tokio::sync::{mpsc, oneshot, Notify};
 
 use crate::config::ServerConfig;
@@ -90,11 +91,13 @@ impl Runtime {
     /// Create the runtime, opening durable stores and constructing the core.
     pub async fn new(cfg: ServerConfig) -> anyhow::Result<(Arc<Self>, RuntimeHandles)> {
         std::fs::create_dir_all(&cfg.data_dir)?;
-        let log = Arc::new(SegmentedLog::open(raft_storage::segmented_log::SegmentedLogConfig {
-            dir: cfg.data_dir.join("log"),
-            max_segment_bytes: 64 * 1024 * 1024,
-            sync_each_append: false,
-        })?);
+        let log = Arc::new(SegmentedLog::open(
+            raft_storage::segmented_log::SegmentedLogConfig {
+                dir: cfg.data_dir.join("log"),
+                max_segment_bytes: 64 * 1024 * 1024,
+                sync_each_append: false,
+            },
+        )?);
         let meta = Arc::new(MetaStore::open(cfg.data_dir.join("meta"))?);
         let snaps = Arc::new(SnapshotStore::open(cfg.data_dir.join("snapshots"))?);
         let sm = Arc::new(KvStateMachine::open(cfg.data_dir.join("kv"))?);
@@ -135,7 +138,10 @@ impl Runtime {
         for p in &cfg.peers {
             addr_book.insert(p.id, p.raft_addr.clone());
             if p.id != cfg.id {
-                peers.insert(p.id, PeerClient::new(p.id, p.raft_addr.clone(), inbox_tx.clone()));
+                peers.insert(
+                    p.id,
+                    PeerClient::new(p.id, p.raft_addr.clone(), inbox_tx.clone()),
+                );
             }
         }
 
@@ -157,12 +163,25 @@ impl Runtime {
             last_term: Mutex::new(0),
         });
 
-        Ok((rt.clone(), RuntimeHandles { inbox_tx, inbox_rx, proposal_rx, read_rx }))
+        Ok((
+            rt.clone(),
+            RuntimeHandles {
+                inbox_tx,
+                inbox_rx,
+                proposal_rx,
+                read_rx,
+            },
+        ))
     }
 
     /// Spawn the runtime loop.
     pub fn spawn(self: Arc<Self>, handles: RuntimeHandles) {
-        let RuntimeHandles { inbox_tx: _, mut inbox_rx, mut proposal_rx, mut read_rx } = handles;
+        let RuntimeHandles {
+            inbox_tx: _,
+            mut inbox_rx,
+            mut proposal_rx,
+            mut read_rx,
+        } = handles;
         let me = self.clone();
         tokio::spawn(async move {
             let tick = Duration::from_millis(me.cfg.tick_ms);
@@ -207,7 +226,10 @@ impl Runtime {
     }
 
     fn now_ms() -> u64 {
-        SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0)
     }
 
     async fn handle_proposal(self: &Arc<Self>, req: ProposalRequest) {
@@ -232,7 +254,13 @@ impl Runtime {
         };
         match acts_res {
             Ok((idx, acts)) => {
-                self.pending.lock().insert(idx, PendingProposal { expected_index: Some(idx), tx: req.tx });
+                self.pending.lock().insert(
+                    idx,
+                    PendingProposal {
+                        expected_index: Some(idx),
+                        tx: req.tx,
+                    },
+                );
                 self.execute_actions(acts).await;
             }
             Err(e) => {
@@ -255,7 +283,11 @@ impl Runtime {
             let mut node = self.node.lock();
             is_leader = matches!(node.role(), Role::Leader);
             commit_target = node.commit_index();
-            acts = if is_leader { node.read_index(bytes::Bytes::new()) } else { Default::default() };
+            acts = if is_leader {
+                node.read_index(bytes::Bytes::new())
+            } else {
+                Default::default()
+            };
         }
         if !is_leader {
             let voters_only_self = self.cfg.peers.len() == 1;
@@ -267,7 +299,11 @@ impl Runtime {
             let _ = req.tx.send(RespFrame::err("MOVED 0 ".to_string()));
             return;
         }
-        self.pending_reads.lock().push(PendingRead { commit_target, tx: req.tx, f: req.f });
+        self.pending_reads.lock().push(PendingRead {
+            commit_target,
+            tx: req.tx,
+            f: req.f,
+        });
         self.execute_actions(acts).await;
         self.drain_ready_reads();
     }
@@ -313,15 +349,26 @@ impl Runtime {
                 Action::ApplyCommitted { entries } => {
                     self.apply_entries(entries).await;
                 }
-                Action::TakeSnapshot { last_included_index, last_included_term } => {
+                Action::TakeSnapshot {
+                    last_included_index,
+                    last_included_term,
+                } => {
                     if let Err(e) = self.take_snapshot(last_included_index, last_included_term) {
                         tracing::error!(error = %e, "snapshot failed");
                     }
                 }
-                Action::InstallSnapshot { last_included_index, last_included_term, .. } => {
-                    let _ = self.meta.save_snapshot_pointer(last_included_index, last_included_term);
+                Action::InstallSnapshot {
+                    last_included_index,
+                    last_included_term,
+                    ..
+                } => {
+                    let _ = self
+                        .meta
+                        .save_snapshot_pointer(last_included_index, last_included_term);
                     self.log.set_snapshot_tip(last_included_index);
-                    self.node.lock().on_snapshot_taken(last_included_index, last_included_term);
+                    self.node
+                        .lock()
+                        .on_snapshot_taken(last_included_index, last_included_term);
                 }
                 Action::ResetElectionTimer | Action::ResetHeartbeatTimer => {}
                 Action::NotifyReadIndex { .. } => {
@@ -363,13 +410,20 @@ impl Runtime {
         }
     }
 
-    fn take_snapshot(&self, last_included_index: u64, last_included_term: u64) -> anyhow::Result<()> {
+    fn take_snapshot(
+        &self,
+        last_included_index: u64,
+        last_included_term: u64,
+    ) -> anyhow::Result<()> {
         let meta = SnapshotMeta {
-            last_included_index, last_included_term, config: vec![],
+            last_included_index,
+            last_included_term,
+            config: vec![],
         };
         let writer = self.snaps.begin_write(&meta)?;
         writer.finish()?;
-        self.meta.save_snapshot_pointer(last_included_index, last_included_term)?;
+        self.meta
+            .save_snapshot_pointer(last_included_index, last_included_term)?;
         self.log.compact(last_included_index)?;
         self.snaps.keep_last(3).ok();
         Ok(())
@@ -389,16 +443,22 @@ impl Runtime {
     fn observe(&self, ev: MetricEvent) {
         match ev {
             MetricEvent::TermBumped { new_term } => tracing::info!(term = new_term, "term bumped"),
-            MetricEvent::ElectionStarted { term, pre_vote } => tracing::info!(term, pre_vote, "election started"),
+            MetricEvent::ElectionStarted { term, pre_vote } => {
+                tracing::info!(term, pre_vote, "election started")
+            }
             MetricEvent::ElectionWon { term } => tracing::info!(term, "election won"),
             MetricEvent::CommitAdvanced { index } => tracing::debug!(index, "commit advanced"),
             MetricEvent::AppendRejected { from } => tracing::debug!(from, "append rejected"),
-            MetricEvent::LeadershipTransferStarted { target } => tracing::info!(target, "leadership transfer"),
+            MetricEvent::LeadershipTransferStarted { target } => {
+                tracing::info!(target, "leadership transfer")
+            }
         }
     }
 
     /// Local node id.
-    pub fn local_id(&self) -> NodeId { self.cfg.id }
+    pub fn local_id(&self) -> NodeId {
+        self.cfg.id
+    }
 }
 
 /// gRPC handlers route inbound Raft RPCs through here. Each Raft RPC has
@@ -414,7 +474,9 @@ impl MessageProcessor for Runtime {
         let mut other_actions: smallvec::SmallVec<[Action; 8]> = smallvec::SmallVec::new();
         for act in actions {
             match act {
-                Action::SendMessage { to, msg } if to == from && response.is_none() && is_response_kind(&msg) => {
+                Action::SendMessage { to, msg }
+                    if to == from && response.is_none() && is_response_kind(&msg) =>
+                {
                     response = Some(msg);
                 }
                 a => other_actions.push(a),
@@ -465,15 +527,26 @@ impl MessageProcessor for Runtime {
                         }
                     }
                 }
-                Action::TakeSnapshot { last_included_index, last_included_term } => {
+                Action::TakeSnapshot {
+                    last_included_index,
+                    last_included_term,
+                } => {
                     if let Err(e) = self.take_snapshot(last_included_index, last_included_term) {
                         tracing::error!(error = %e, "snapshot failed");
                     }
                 }
-                Action::InstallSnapshot { last_included_index, last_included_term, .. } => {
-                    let _ = self.meta.save_snapshot_pointer(last_included_index, last_included_term);
+                Action::InstallSnapshot {
+                    last_included_index,
+                    last_included_term,
+                    ..
+                } => {
+                    let _ = self
+                        .meta
+                        .save_snapshot_pointer(last_included_index, last_included_term);
                     self.log.set_snapshot_tip(last_included_index);
-                    self.node.lock().on_snapshot_taken(last_included_index, last_included_term);
+                    self.node
+                        .lock()
+                        .on_snapshot_taken(last_included_index, last_included_term);
                 }
                 Action::ResetElectionTimer | Action::ResetHeartbeatTimer => {}
                 Action::NotifyReadIndex { .. } => {
@@ -527,14 +600,95 @@ pub struct ClientHandler {
 
 impl ClientHandler {
     /// Construct.
-    pub fn new(rt: Arc<Runtime>) -> Self { Self { rt } }
+    pub fn new(rt: Arc<Runtime>) -> Self {
+        Self { rt }
+    }
+
+    pub fn status_json(&self) -> Value {
+        let s = self.rt.soft.lock();
+        let nodes: Vec<Value> = self.rt.addr_book.iter().map(|(id, addr)| json!({"id": id, "addr": addr, "role": if Some(*id) == s.leader { "leader" } else { "follower" }, "voter": true})).collect();
+        json!({"node_id": self.rt.cfg.id, "role": s.role, "term": s.term, "leader_id": s.leader, "commit_index": s.commit_index, "applied_index": s.applied_index, "last_log_index": s.last_log_index, "keys": self.rt.sm.len(), "state_hash": self.rt.sm.state_hash().iter().map(|b| format!("{b:02x}")).collect::<String>(), "nodes": nodes})
+    }
+
+    pub async fn keys_json(&self) -> Result<Value, (u16, String)> {
+        self.linearizable_read(|sm| {
+            RespFrame::Bulk(Some(
+                serde_json::to_vec(&sm.keys().unwrap_or_default()).unwrap_or_default(),
+            ))
+        })
+        .await
+        .map_err(|e| (503, e.to_string()))
+        .and_then(|frame| match frame {
+            RespFrame::Bulk(Some(v)) => serde_json::from_slice::<Vec<Vec<u8>>>(&v)
+                .map(|keys| json!({"keys": keys}))
+                .map_err(|e| (500, e.to_string())),
+            _ => Err((500, "invalid response".into())),
+        })
+    }
+
+    pub async fn get_json(&self, key: &str) -> Result<Value, (u16, String)> {
+        let key = key.as_bytes().to_vec();
+        self.linearizable_read(move |sm| {
+            RespFrame::Bulk(Some(
+                serde_json::to_vec(
+                    &sm.get(&key)
+                        .ok()
+                        .flatten()
+                        .map(|v| String::from_utf8_lossy(&v).into_owned()),
+                )
+                .unwrap_or_default(),
+            ))
+        })
+        .await
+        .map_err(|e| (503, e.to_string()))
+        .and_then(|frame| match frame {
+            RespFrame::Bulk(Some(v)) => serde_json::from_slice::<Option<String>>(&v)
+                .map(|value| json!({"value": value}))
+                .map_err(|e| (500, e.to_string())),
+            _ => Err((500, "invalid response".into())),
+        })
+    }
+
+    pub async fn set_json(&self, key: &str, body: &str) -> Result<Value, (u16, String)> {
+        let value = serde_json::from_str::<Value>(body)
+            .ok()
+            .and_then(|v| v.get("value").and_then(Value::as_str).map(str::to_owned))
+            .unwrap_or_else(|| body.to_owned());
+        match self
+            .propose(Command::Set {
+                key: key.as_bytes().to_vec(),
+                value: value.as_bytes().to_vec(),
+                expire_at_ms: None,
+            })
+            .await
+        {
+            Ok(_) => Ok(json!({"ok": true, "key": key, "value": value})),
+            Err(e) => Err((503, e.to_string())),
+        }
+    }
+
+    pub async fn delete_json(&self, key: &str) -> Result<Value, (u16, String)> {
+        match self
+            .propose(Command::Del {
+                keys: vec![key.as_bytes().to_vec()],
+            })
+            .await
+        {
+            Ok(Response::Int(removed)) => Ok(json!({"ok": true, "removed": removed > 0})),
+            Ok(_) => Ok(json!({"ok": true})),
+            Err(e) => Err((503, e.to_string())),
+        }
+    }
 }
 
 #[async_trait]
 impl CommandHandler for ClientHandler {
     async fn propose(&self, cmd: Command) -> Result<Response, ProposeFailure> {
         let (tx, rx) = oneshot::channel();
-        let req = ProposalRequest { kind: ProposalKind::Command(cmd), tx };
+        let req = ProposalRequest {
+            kind: ProposalKind::Command(cmd),
+            tx,
+        };
         if self.rt.proposal_tx.send(req).is_err() {
             return Err(ProposeFailure::Other("runtime gone".into()));
         }
@@ -546,7 +700,9 @@ impl CommandHandler for ClientHandler {
     }
 
     async fn linearizable_read<F>(&self, f: F) -> Result<RespFrame, ProposeFailure>
-    where F: FnOnce(&KvStateMachine) -> RespFrame + Send + 'static {
+    where
+        F: FnOnce(&KvStateMachine) -> RespFrame + Send + 'static,
+    {
         let (tx, rx) = oneshot::channel();
         let req = ReadRequest { f: Box::new(f), tx };
         if self.rt.read_tx.send(req).is_err() {

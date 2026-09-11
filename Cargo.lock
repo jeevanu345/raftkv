@@ -1307,6 +1307,7 @@ dependencies = [
  "raft-storage",
  "resp-server",
  "serde",
+ "serde_json",
  "smallvec",
  "thiserror",
  "tokio",

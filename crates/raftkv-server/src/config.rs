@@ -24,6 +24,9 @@ pub struct ServerConfig {
     pub client_listen: String,
     /// Prometheus metrics scrape endpoint.
     pub metrics_listen: String,
+    /// Browser dashboard HTTP endpoint.
+    #[serde(default = "default_ui_listen")]
+    pub ui_listen: String,
     /// Initial voters (cluster bootstrap). Must be the same on all nodes at
     /// first boot.
     pub peers: Vec<Peer>,
@@ -48,7 +51,11 @@ impl Default for ServerConfig {
             raft_listen: "0.0.0.0:7001".into(),
             client_listen: "0.0.0.0:6379".into(),
             metrics_listen: "0.0.0.0:9100".into(),
-            peers: vec![Peer { id: 1, raft_addr: "http://127.0.0.1:7001".into() }],
+            ui_listen: "127.0.0.1:8080".into(),
+            peers: vec![Peer {
+                id: 1,
+                raft_addr: "http://127.0.0.1:7001".into(),
+            }],
             data_dir: PathBuf::from("./data"),
             election_timeout_ms: 300,
             heartbeat_ms: 50,
@@ -57,6 +64,10 @@ impl Default for ServerConfig {
             pre_vote: true,
         }
     }
+}
+
+fn default_ui_listen() -> String {
+    "127.0.0.1:8080".into()
 }
 
 impl ServerConfig {

@@ -119,6 +119,18 @@ The chart provides a three-replica StatefulSet, peer discovery service, client s
 
 `raftkv-server` accepts a TOML configuration with node identity, Raft and client bind addresses, peers, data directory, election/heartbeat timing, snapshot threshold, and pre-vote settings. See `deploy/node1.toml`, `deploy/node2.toml`, `deploy/node3.toml`, and [HOW_TO_RUN.md](HOW_TO_RUN.md).
 
+### Local operator dashboard
+
+The server also exposes a localhost-only JSON API on `127.0.0.1:8080` for the React/Vite operator console. Start the server, then in a second terminal run:
+
+```bash
+cd ui
+npm install
+npm run dev
+```
+
+Open http://localhost:5173. The console shows live Raft topology, term and commit progress, the deterministic state hash, and supports real SET, GET, and DELETE operations through the Raft runtime. Override the API bind address with `--ui-listen` when needed; keep it on localhost unless you add authentication and a restricted CORS policy.
+
 ## Testing and reproducibility
 
 ```bash

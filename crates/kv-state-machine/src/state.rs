@@ -48,7 +48,10 @@ fn ttl_key(expire_at_ms: u64, key: &[u8]) -> Vec<u8> {
 impl KvStateMachine {
     /// Open or create a state machine at the given directory.
     pub fn open<P: AsRef<Path>>(path: P) -> Result<Self, StateMachineError> {
-        let db = sled::Config::new().path(path).flush_every_ms(Some(200)).open()?;
+        let db = sled::Config::new()
+            .path(path)
+            .flush_every_ms(Some(200))
+            .open()?;
         let kv = db.open_tree("kv")?;
         let ttl = db.open_tree("ttl")?;
         let meta = db.open_tree("meta")?;
@@ -60,7 +63,13 @@ impl KvStateMachine {
             }
             _ => [0u8; 32],
         };
-        Ok(Self { db, kv, ttl, meta, hash: Mutex::new(hash) })
+        Ok(Self {
+            db,
+            kv,
+            ttl,
+            meta,
+            hash: Mutex::new(hash),
+        })
     }
 
     /// Last applied log index.
@@ -71,18 +80,33 @@ impl KvStateMachine {
             .flatten()
             .and_then(|b| {
                 let mut buf = [0u8; 8];
-                if b.len() >= 8 { buf.copy_from_slice(&b[..8]); Some(u64::from_le_bytes(buf)) } else { None }
+                if b.len() >= 8 {
+                    buf.copy_from_slice(&b[..8]);
+                    Some(u64::from_le_bytes(buf))
+                } else {
+                    None
+                }
             })
             .unwrap_or(0)
     }
 
     /// Snapshot of state hash (32 bytes, hex-encodable).
-    pub fn state_hash(&self) -> [u8; 32] { *self.hash.lock() }
+    pub fn state_hash(&self) -> [u8; 32] {
+        *self.hash.lock()
+    }
 
     /// Apply a deserialized command. Returns the response.
-    pub fn apply(&self, applied_index: LogIndex, cmd: &Command) -> Result<Response, StateMachineError> {
+    pub fn apply(
+        &self,
+        applied_index: LogIndex,
+        cmd: &Command,
+    ) -> Result<Response, StateMachineError> {
         let resp = match cmd {
-            Command::Set { key, value, expire_at_ms } => {
+            Command::Set {
+                key,
+                value,
+                expire_at_ms,
+            } => {
                 self.kv.insert(key.as_slice(), value.as_slice())?;
                 if let Some(t) = expire_at_ms {
                     self.ttl.insert(ttl_key(*t, key), &[] as &[u8])?;
@@ -93,15 +117,23 @@ impl KvStateMachine {
             Command::Del { keys } => {
                 let mut n = 0i64;
                 for k in keys {
-                    if self.kv.remove(k.as_slice())?.is_some() { n += 1; }
+                    if self.kv.remove(k.as_slice())?.is_some() {
+                        n += 1;
+                    }
                     self.update_hash(b"D", k, &[]);
                 }
                 Response::Int(n)
             }
             Command::Incr { key, delta } => {
-                let cur = self.kv.get(key.as_slice())?.and_then(|v: IVec| {
-                    std::str::from_utf8(&v).ok().and_then(|s| s.parse::<i64>().ok())
-                }).unwrap_or(0);
+                let cur = self
+                    .kv
+                    .get(key.as_slice())?
+                    .and_then(|v: IVec| {
+                        std::str::from_utf8(&v)
+                            .ok()
+                            .and_then(|s| s.parse::<i64>().ok())
+                    })
+                    .unwrap_or(0);
                 let new = cur.saturating_add(*delta);
                 let s = new.to_string();
                 self.kv.insert(key.as_slice(), s.as_bytes())?;
@@ -120,11 +152,22 @@ impl KvStateMachine {
             Command::Persist { key } => {
                 let mut removed = 0;
                 let prefix = key.as_slice();
-                let to_remove: Vec<_> = self.ttl.iter().keys().filter_map(|k| k.ok()).filter(|k| {
-                    if k.len() < 8 { return false; }
-                    &k[8..] == prefix
-                }).collect();
-                for k in to_remove { self.ttl.remove(k)?; removed += 1; }
+                let to_remove: Vec<_> = self
+                    .ttl
+                    .iter()
+                    .keys()
+                    .filter_map(|k| k.ok())
+                    .filter(|k| {
+                        if k.len() < 8 {
+                            return false;
+                        }
+                        &k[8..] == prefix
+                    })
+                    .collect();
+                for k in to_remove {
+                    self.ttl.remove(k)?;
+                    removed += 1;
+                }
                 Response::Int(if removed > 0 { 1 } else { 0 })
             }
             Command::MSet { pairs } => {
@@ -148,7 +191,8 @@ impl KvStateMachine {
         // Bookkeeping (atomic-ish; sled provides WAL but not transactional
         // multi-tree atomicity — for this project we accept that and rely on
         // applied_index being persisted last so a crash mid-apply re-applies).
-        self.meta.insert(META_APPLIED, &applied_index.to_le_bytes())?;
+        self.meta
+            .insert(META_APPLIED, &applied_index.to_le_bytes())?;
         let h = *self.hash.lock();
         self.meta.insert(META_HASH, &h)?;
         Ok(resp)
@@ -170,10 +214,23 @@ impl KvStateMachine {
         keys.iter().map(|k| self.get(k.as_slice())).collect()
     }
 
+    /// Return all keys currently present in the key-value tree.
+    pub fn keys(&self) -> Result<Vec<Vec<u8>>, StateMachineError> {
+        self.kv
+            .iter()
+            .keys()
+            .map(|key| key.map(|k| k.to_vec()).map_err(StateMachineError::from))
+            .collect()
+    }
+
     /// DBSIZE.
-    pub fn len(&self) -> usize { self.kv.len() }
+    pub fn len(&self) -> usize {
+        self.kv.len()
+    }
     /// Whether store is empty.
-    pub fn is_empty(&self) -> bool { self.kv.is_empty() }
+    pub fn is_empty(&self) -> bool {
+        self.kv.is_empty()
+    }
 
     /// Force a sled flush (durability).
     pub fn flush(&self) -> Result<(), StateMachineError> {
@@ -227,9 +284,23 @@ mod tests {
     fn set_get_del() {
         let dir = tempdir().unwrap();
         let sm = KvStateMachine::open(dir.path()).unwrap();
-        sm.apply(1, &Command::Set { key: b"a".to_vec(), value: b"1".to_vec(), expire_at_ms: None }).unwrap();
+        sm.apply(
+            1,
+            &Command::Set {
+                key: b"a".to_vec(),
+                value: b"1".to_vec(),
+                expire_at_ms: None,
+            },
+        )
+        .unwrap();
         assert_eq!(sm.get(b"a").unwrap(), Some(b"1".to_vec()));
-        sm.apply(2, &Command::Del { keys: vec![b"a".to_vec()] }).unwrap();
+        sm.apply(
+            2,
+            &Command::Del {
+                keys: vec![b"a".to_vec()],
+            },
+        )
+        .unwrap();
         assert_eq!(sm.get(b"a").unwrap(), None);
     }
 
@@ -241,9 +312,20 @@ mod tests {
         let s1 = KvStateMachine::open(d1.path()).unwrap();
         let s2 = KvStateMachine::open(d2.path()).unwrap();
         let cmds = vec![
-            Command::Set { key: b"x".to_vec(), value: b"1".to_vec(), expire_at_ms: None },
-            Command::Set { key: b"y".to_vec(), value: b"2".to_vec(), expire_at_ms: None },
-            Command::Incr { key: b"x".to_vec(), delta: 5 },
+            Command::Set {
+                key: b"x".to_vec(),
+                value: b"1".to_vec(),
+                expire_at_ms: None,
+            },
+            Command::Set {
+                key: b"y".to_vec(),
+                value: b"2".to_vec(),
+                expire_at_ms: None,
+            },
+            Command::Incr {
+                key: b"x".to_vec(),
+                delta: 5,
+            },
         ];
         for (i, c) in cmds.iter().enumerate() {
             s1.apply(i as u64 + 1, c).unwrap();
