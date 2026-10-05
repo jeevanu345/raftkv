@@ -72,7 +72,7 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-fuzz
-      - run: cargo fuzz run ${{ matrix.target }} -- -max_total_time=15
+      - run: cargo +nightly fuzz run ${{ matrix.target }} --target x86_64-unknown-linux-gnu -- -max_total_time=15
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
@@ -91,4 +91,4 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@miri
-      - run: cargo miri test -p linearizability-checker
+      - run: cargo +nightly miri test -p linearizability-checker
