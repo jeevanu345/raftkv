@@ -1,8 +1,8 @@
 import { useSyncExternalStore } from "react";
 
 export type Appearance = Readonly<{ theme: "dark" | "light"; fontScale: number }>;
-const storageKey = "raftkv.appearance.v1";
-const defaults: Appearance = { theme: "dark", fontScale: 100 };
+const storageKey = "raftkv.appearance.v2";
+const defaults: Appearance = { theme: "dark", fontScale: 150 };
 const listeners = new Set<() => void>();
 
 function parse(raw: string | null): Appearance {
@@ -13,12 +13,18 @@ function parse(raw: string | null): Appearance {
     return {
       theme: theme === "light" ? "light" : "dark",
       fontScale: typeof fontScale === "number" && Number.isFinite(fontScale)
-        ? Math.min(150, Math.max(85, Math.round(fontScale / 5) * 5)) : 100
+        ? Math.min(150, Math.max(85, Math.round(fontScale / 5) * 5)) : 150
     };
   } catch { return defaults; }
 }
 function read(): Appearance {
-  try { return parse(localStorage.getItem(storageKey)); } catch { return defaults; }
+  try {
+    const saved = localStorage.getItem(storageKey);
+    if (saved !== null) return parse(saved);
+    // Upgrade the former 100% default while retaining the browser's theme.
+    const previous = parse(localStorage.getItem("raftkv.appearance.v1"));
+    return { theme: previous.theme, fontScale: 150 };
+  } catch { return defaults; }
 }
 let current = read();
 function apply() {

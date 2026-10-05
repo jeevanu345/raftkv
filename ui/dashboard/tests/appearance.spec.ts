@@ -4,25 +4,26 @@ test('appearance applies globally, persists, and controls stay in Administration
  await page.goto('/administration');
  await page.getByRole('combobox',{name:'Color theme'}).click();
  await page.getByRole('option',{name:'Light mode',exact:true}).click();
- await page.getByRole('button',{name:'Increase font size'}).click();
- await expect(page.getByLabel('Global font size')).toHaveValue('105');
+ await page.getByRole('button',{name:'Decrease font size'}).click();
+ await expect(page.getByLabel('Global font size')).toHaveValue('145');
  await page.reload();
  await expect(page.getByRole('combobox',{name:'Color theme'})).toContainText('Light mode');
- await expect(page.getByLabel('Global font size')).toHaveValue('105');
+ await expect(page.getByLabel('Global font size')).toHaveValue('145');
  for(const route of routes){
   await page.goto(route);
   await expect(page.locator('html')).toHaveAttribute('data-theme','light');
-  expect(await page.evaluate(()=>getComputedStyle(document.documentElement).fontSize)).toBe('16.8px');
+  expect(await page.evaluate(()=>getComputedStyle(document.documentElement).fontSize)).toBe('23.2px');
   if(route!='/administration')await expect(page.getByLabel('Color theme')).toHaveCount(0);
  }
  await page.getByRole('button',{name:'Decrease font size'}).click();
- await expect(page.getByLabel('Global font size')).toHaveValue('100');
+ await expect(page.getByLabel('Global font size')).toHaveValue('140');
  await page.getByRole('button',{name:'Reset appearance'}).click();
  await expect(page.getByRole('combobox',{name:'Color theme'})).toContainText('Dark mode');
+ await expect(page.getByLabel('Global font size')).toHaveValue('150');
 });
 for(const theme of ['dark','light'])for(const width of [1440,768])test(`${theme} at largest font stays usable at ${width}`,async({page})=>{
  const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));
- await page.addInitScript(theme=>localStorage.setItem('raftkv.appearance.v1',JSON.stringify({theme,fontScale:150})),theme);
+ await page.addInitScript(theme=>localStorage.setItem('raftkv.appearance.v2',JSON.stringify({theme,fontScale:150})),theme);
  await page.setViewportSize({width,height:1000});
  for(const route of routes){
   await page.goto(route);await expect(page.locator('.topbar__title')).toBeVisible();await page.waitForTimeout(300);
@@ -38,9 +39,10 @@ test('long event IDs cannot overlap the icon or details',async({page})=>{
 });
 test('supplied project logo loads without distortion',async({page})=>{
  await page.goto('/');const logo=page.getByRole('img',{name:'RaftKV',exact:true});await expect(logo).toBeVisible();
- await expect(logo).toHaveJSProperty('naturalWidth',1254);
+ await expect(logo).toHaveJSProperty('naturalWidth',320);
  await expect(logo).toHaveJSProperty('complete',true);
- const box=await logo.boundingBox();expect(box!.width).toBeCloseTo(box!.height,0);
+ const box=await logo.boundingBox();expect(box!.width / box!.height).toBeCloseTo(320 / 300,2);
+ expect(await logo.evaluate(el=>getComputedStyle(el).backgroundColor)).toBe("rgba(0, 0, 0, 0)");
 });
 
 test('custom dropdown keyboard, escape, outside click and no native selects',async({page})=>{
@@ -53,4 +55,12 @@ test('custom dropdown keyboard, escape, outside click and no native selects',asy
 test('custom menus support command targets and membership roles',async({page})=>{
  await page.goto('/console');const target=page.getByRole('combobox',{name:'Command target'});await target.click();await page.getByRole('option',{name:/^Node 1 \(.*\)$/}).click();await expect(target).toContainText('Node 1');
  await page.goto('/administration');await page.getByRole('button',{name:'Add member',exact:true}).click();const role=page.getByRole('combobox',{name:'Member role'});await role.click();await page.getByRole('option',{name:'Promote existing learner',exact:true}).click();await expect(role).toContainText('Promote existing learner');
+});
+
+test('new browsers start with 150 percent text',async({page})=>{await page.goto('/administration');await expect(page.getByLabel('Global font size')).toHaveValue('150');expect(await page.evaluate(()=>getComputedStyle(document.documentElement).fontSize)).toBe('24px');});
+test('legacy appearance migrates to 150 percent while retaining theme',async({page})=>{
+ await page.addInitScript(()=>localStorage.setItem('raftkv.appearance.v1',JSON.stringify({theme:'light',fontScale:100})));
+ await page.goto('/administration');await expect(page.getByLabel('Global font size')).toHaveValue('150');
+ const logo=page.getByRole('img',{name:'RaftKV',exact:true});await expect(logo).toHaveAttribute('src','/raftkv-logo-light.svg');
+ await page.getByRole('combobox',{name:'Color theme'}).click();await page.getByRole('option',{name:'Dark mode',exact:true}).click();await expect(logo).toHaveAttribute('src','/raftkv-logo-dark.svg');
 });

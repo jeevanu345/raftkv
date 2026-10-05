@@ -1,6 +1,6 @@
 :root {
   color-scheme: dark;
-  font-size: calc(16px * var(--font-scale, 1));
+  font-size: calc(16px * var(--font-scale, 1.5));
 
   --background: #080a0d;
   --background-subtle: #0b0e12;
@@ -2513,7 +2513,7 @@ input,select {padding:8px;background:var(--background-subtle);color:var(--text-p
 :root[data-theme="light"] .button--primary,
 :root[data-theme="light"] .button--danger { color: #ffffff; }
 .sidebar__brand { flex-direction: column; padding: 0 0 18px; gap: 0; }
-.sidebar__logo { display: block; width: 152px; height: auto; max-width: 100%; border-radius: var(--radius-sm); background: #080a0d; }
+.sidebar__logo { display: block; width: 152px; height: auto; max-width: 100%; background: transparent; }
 .appearance-settings { display: flex; flex-wrap: wrap; align-items: center; gap: 24px; }
 .appearance-settings__field { display: flex; flex-direction: column; gap: 10px; min-width: 0; flex: 1 1 220px; }
 .appearance-settings__field select { width: 100%; padding: 10px; background: var(--surface-raised); color: var(--text-primary); border: 1px solid var(--border-strong); border-radius: var(--radius-sm); }

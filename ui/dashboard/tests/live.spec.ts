@@ -10,7 +10,7 @@ test('appearance stays available when the cluster is unavailable',async({page})=
  await expect(page.getByText('Quorum unavailable').first()).toBeVisible({timeout:15000});
  await page.getByRole('combobox',{name:'Color theme'}).click();
  await page.getByRole('option',{name:'Light mode',exact:true}).click();
- await page.getByRole('button',{name:'Increase font size'}).click();
- await expect(page.getByLabel('Global font size')).toHaveValue('105');
+ await page.getByRole('button',{name:'Decrease font size'}).click();
+ await expect(page.getByLabel('Global font size')).toHaveValue('145');
  await expect(page.locator('html')).toHaveAttribute('data-theme','light');
 });

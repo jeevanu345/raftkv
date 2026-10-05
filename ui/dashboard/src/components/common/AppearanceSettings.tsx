@@ -16,9 +16,9 @@ export default function AppearanceSettings() {
           <input id="font-scale" type="range" min="85" max="150" step="5" value={fontScale} aria-valuetext={`${fontScale}%`} onChange={event => setAppearance({ fontScale: Number(event.target.value) })}/>
           <button className="button button--ghost" aria-label="Increase font size" disabled={fontScale >= 150} onClick={() => setAppearance({ fontScale: fontScale + 5 })}>A+</button>
         </div>
-        <span>Smaller 85% · Default 100% · Larger 150%</span>
+        <span>Smaller 85% · Default / larger 150%</span>
       </div>
-      <button className="button button--ghost" onClick={() => setAppearance({ theme: "dark", fontScale: 100 })}>Reset appearance</button>
+      <button className="button button--ghost" onClick={() => setAppearance({ theme: "dark", fontScale: 150 })}>Reset appearance</button>
     </div>
   </Panel>;
 }

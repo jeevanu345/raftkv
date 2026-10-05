@@ -13,7 +13,7 @@ npm ci
 VITE_DEMO_MODE=false npm run dev
 ```
 
-Appearance controls are available only in **Administration → Appearance**. Choose light or dark mode and adjust the global font size from 85% to 150%. Changes apply to every dashboard route immediately and persist in this browser; Reset appearance restores dark mode at 100%. These are local display preferences and do not change cluster configuration.
+Appearance controls are available only in **Administration → Appearance**. Choose light or dark mode and adjust the global font size from 85% to 150% (the default). Changes apply to every dashboard route immediately and persist in this browser; Reset appearance restores dark mode at 150%. These are local display preferences and do not change cluster configuration.
 
 The development proxy preserves the browser-facing Host header for same-origin validation. Production reverse proxies must preserve the public Host too, or configure the explicit trusted `allowed_origins`; do not disable origin checks.
 

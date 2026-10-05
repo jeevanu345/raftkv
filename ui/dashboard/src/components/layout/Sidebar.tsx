@@ -12,6 +12,8 @@ import {
   NavLink
 } from "react-router-dom";
 
+import { useAppearance } from "../../lib/appearance";
+
 const navItems = [
   {
     to: "/",
@@ -52,10 +54,11 @@ const navItems = [
 ];
 
 export default function Sidebar() {
+  const { theme } = useAppearance();
   return (
     <aside className="sidebar">
       <NavLink to="/" className="sidebar__brand" aria-label="RaftKV overview">
-        <img className="sidebar__logo" src="/raftkv-logo.png" alt="RaftKV" width="1254" height="1254" />
+        <img className="sidebar__logo" src={`/raftkv-logo-${theme}.svg`} alt="RaftKV" width="320" height="300" />
         <span className="sidebar__brand-subtitle">Control Plane</span>
       </NavLink>
 

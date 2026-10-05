@@ -1,8 +1,16 @@
-<p align="center"><img src="logo.png" alt="RaftKV" width="220" /></p>
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="ui/dashboard/public/raftkv-logo-dark.svg" />
+    <source media="(prefers-color-scheme: light)" srcset="ui/dashboard/public/raftkv-logo-light.svg" />
+    <img src="logo.svg" alt="RaftKV — distributed key-value store" width="240" />
+  </picture>
+</p>
 
 # RaftKV
 
-A Raft-replicated key-value store in Rust, with a Redis-compatible RESP command subset, a React operator dashboard, and an isolated deterministic simulation lab.
+RaftKV is a distributed key-value store written in Rust. A group of server processes elects a leader, replicates commands through a Raft log, commits them after quorum agreement, and applies them to durable storage. Reads use ReadIndex quorum confirmation before returning state. Clients can use a supported Redis-compatible RESP command subset or the HTTP control plane.
+
+The React/TypeScript dashboard makes this state visible: inspect node roles and replication progress, browse keys, execute commands, watch consensus events, and manage membership and snapshots. A separate deterministic Simulation Lab lets you explore network partitions, crashes and storage faults without wiring those fault controls to the live cluster.
 
 **Status: experimental, unreleased.** Workspace version remains `0.1.0`; this change implements the proposed `0.2.0` development milestone. Local correctness, recovery, security and GUI checks are documented in [VERIFICATION.md](docs/VERIFICATION.md). They are evidence for the tested scenarios, not a proof of correctness or production readiness.
 
@@ -95,11 +103,102 @@ The RESP implementation is a supported subset, not complete Redis compatibility.
 
 Fsync remains conservative and expensive; published short debug-build benchmark samples are not capacity planning data. Local fuzz smoke runs were not sanitizer/coverage instrumented; the nightly CI job supplies instrumentation. Docker image build, actual Kubernetes scheduling, Miri and long-running fuzz/soak jobs have not been verified locally. External Jepsen/Knossos/Porcupine execution requires a separately configured harness. Legacy empty snapshot files fail validation rather than being treated as valid state checkpoints.
 
-## Dashboard preview
+## Dashboard guide and screenshots
 
-This screenshot shows labelled **demo fixtures**, not a production cluster.
+The dashboard now starts with **150% font size**. **Administration → Appearance** contains the only theme and text-size controls: choose light/dark mode, adjust text from 85% to 150%, or reset to dark mode at 150%. Preferences persist locally per browser and synchronize across its tabs. Existing preferences migrate to the new default while retaining the chosen theme. The transparent SVG brand has no background tile; its wordmark adapts to the theme. All dropdowns are custom themed, keyboard-accessible menus rather than operating-system selectors.
 
-![Dashboard overview](docs/screenshots/cluster-overview.png)
+These screenshots were captured on **2026-10-05**, at **1600 × 1100** with **150% text**, from the actual local three-node cluster and separate lab service. They are live application screenshots, not the previous demo fixtures. Term, leader, indexes and metrics reflect the capture moment and can differ between screens. The local database and snapshot list were empty; those screens intentionally show their real empty states. Metrics display a short observation window, not a performance benchmark.
+
+### Cluster Overview
+
+The starting point for operational inspection: current term and leader, stable/joint configuration, quorum health, key count, request/latency summaries, per-node commit/applied/log positions, replication progress, storage footprint and leader state hash. Node cards open detailed diagnostics. Missing or unreachable values remain explicitly unavailable.
+
+![Live cluster overview at 150% font size](docs/screenshots/cluster-overview.png)
+
+### Key Explorer
+
+Enumerates keys using bounded SCAN pagination rather than `KEYS *`. Select a key to inspect size, type, TTL and value, choose UTF-8/Base64/hexadecimal representation, edit the value and expiry, or confirm deletion. Changes are replicated through Raft; value reads wait for ReadIndex confirmation. The screenshot shows the genuine empty database state.
+
+![Live key explorer at 150% font size](docs/screenshots/key-explorer.png)
+
+### Command Console
+
+Runs supported RESP commands and displays the structured response, raw RESP, receiving node, leader term and timing. Writes additionally expose the actual proposal index and commit/apply receipt when available. Command history supports keyboard recall; FLUSHDB requires confirmation. “Current leader” forwards eligible requests, while an explicitly selected follower exposes its real MOVED response. The screenshot shows a successful `INFO raft` request to the running cluster.
+
+![Live command console at 150% font size](docs/screenshots/command-console.png)
+
+### Raft Visualizer
+
+Shows current node roles, peer communication, recent term/index log entries, commit/applied progress and snapshot boundaries. The SSE event timeline preserves complete event identifiers without overlapping icons or details. Pause the displayed stream, clear its local history, or inspect node diagnostics; animation represents observed events rather than generated protocol traffic.
+
+![Live Raft visualizer at 150% font size](docs/screenshots/raft-visualizer.png)
+
+### Metrics
+
+Plots recent real request throughput and latency samples, together with storage and replication summaries. The frontend bounds its sample history and derives rates from counter deltas. Quiet workloads can legitimately produce flat or zero values. Prometheus/Grafana provide the separate monitoring path for longer-term history and alerts.
+
+![Live metrics at 150% font size](docs/screenshots/metrics.png)
+
+### Simulation Lab
+
+Connects to the **separate `raftkv-lab` process**, not live-cluster administration. Its reproducible seed, tick counter and node state accompany start/pause/step, proposals, crashes/restarts, partitions, directed link blocking, storage/clock faults and simulated membership actions. Import/export supports deterministic replay. The captured lab is an isolated initial scenario; its nodes are not extra production members.
+
+![Isolated simulation lab at 150% font size](docs/screenshots/simulation-lab.png)
+
+### Administration
+
+Contains Appearance settings, cluster membership, learner promotion, leadership transfer, snapshot creation, backup download and confirmed destructive actions. **Add member registers a server; it does not launch a process.** Start a new node with unique ID, ports and data directory, register it as a learner, wait for catch-up, then promote it to voter. Offline restore uses the operator CLI and an empty directory; the UI explains that workflow instead of replacing live state.
+
+![Live administration at 150% font size](docs/screenshots/administration.png)
+
+<details>
+<summary><strong>Light-mode gallery — all seven screens at 150%</strong></summary>
+
+The same running services and the same text scale, with light surfaces and a dark SVG wordmark. Each screenshot is a separate capture, so live counters can advance.
+
+**Cluster Overview**
+
+![Light cluster overview](docs/screenshots/light/cluster-overview.png)
+
+**Key Explorer**
+
+![Light key explorer](docs/screenshots/light/key-explorer.png)
+
+**Command Console**
+
+![Light command console](docs/screenshots/light/command-console.png)
+
+**Raft Visualizer**
+
+![Light Raft visualizer](docs/screenshots/light/raft-visualizer.png)
+
+**Metrics**
+
+![Light metrics](docs/screenshots/light/metrics.png)
+
+**Simulation Lab**
+
+![Light simulation lab](docs/screenshots/light/simulation-lab.png)
+
+**Administration / Appearance**
+
+![Light administration](docs/screenshots/light/administration.png)
+
+</details>
+
+### Reproduce the gallery
+
+With the local cluster, lab and Vite dashboard running:
+
+```bash
+cd ui/dashboard
+npm ci
+npx playwright install chromium
+cd ../..
+node scripts/capture_dashboard.mjs
+```
+
+The script opens fresh headless browser contexts, asserts the 150% default on every screen, captures both themes, checks for page errors and horizontal overflow, and records [capture metadata](docs/screenshots/capture.json). It submits only the read-only `INFO raft` console command and does not seed keys or mutate membership. Set `CHROME_PATH` to use an installed Chrome executable, or `RAFTKV_DASHBOARD_URL` / `RAFTKV_SCREENSHOT_DIR` to change the service URL / destination.
 
 ## License
 
