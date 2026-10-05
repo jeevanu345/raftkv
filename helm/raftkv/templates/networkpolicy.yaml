@@ -1,0 +1,57 @@
+{{- if .Values.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "raftkv.fullname" . }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "raftkv.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: {{ include "raftkv.name" . }}
+              app.kubernetes.io/instance: {{ .Release.Name }}
+      ports:
+        - port: {{ .Values.service.raftPort }}
+        - port: {{ .Values.service.adminPort }}
+    - from:
+        - podSelector:
+            matchLabels:
+              raftkv-client: "true"
+      ports:
+        - port: {{ .Values.service.clientPort }}
+    - from:
+        - podSelector:
+            matchLabels:
+              raftkv-admin: "true"
+      ports:
+        - port: {{ .Values.service.adminPort }}
+    - from:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+              app.kubernetes.io/instance: {{ .Release.Name }}
+      ports:
+        - port: {{ .Values.service.metricsPort }}
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: {{ include "raftkv.name" . }}
+              app.kubernetes.io/instance: {{ .Release.Name }}
+      ports:
+        - port: {{ .Values.service.raftPort }}
+        - port: {{ .Values.service.adminPort }}
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+{{- end }}

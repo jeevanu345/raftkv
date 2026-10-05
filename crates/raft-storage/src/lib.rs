@@ -17,3 +17,7 @@ pub use error::StorageError;
 pub use meta::MetaStore;
 pub use segmented_log::SegmentedLog;
 pub use snapshot_store::{SnapshotMeta, SnapshotStore};
+
+pub mod backup;
+
+pub mod durability;

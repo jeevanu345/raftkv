@@ -28,3 +28,17 @@ target/
 .Trashes
 ehthumbs.db
 Thumbs.db
+
+# Dashboard/test and benchmark outputs
+**/node_modules/
+**/dist/
+**/test-results/
+**/playwright-report/
+**/*.tsbuildinfo
+fuzz/target/
+fuzz/artifacts/
+fuzz/corpus/
+
+.runtime/
+
+**/__pycache__/

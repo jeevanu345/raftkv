@@ -1,38 +1,13 @@
 # Changelog
 
-## 0.1.0 — initial scaffolding (unreleased)
+## 0.2 development milestone — unreleased
 
-### Working
+Implements the supplied `IMPLEMENTATION_PROMPT.md` across correctness, snapshots/recovery, TTL, dynamic membership, control APIs, observability, the seven-screen dashboard, isolated simulation, security, backup/restore, fuzz/chaos/benchmarks and deployment/CI.
 
-- `raft-core`: pure consensus state machine with Election Safety, Log
-  Matching, Leader Append-Only, Leader Completeness, joint consensus
-  membership changes, pre-vote, leadership transfer, read-index, snapshot
-  install. Unit tests cover single-node election, three-node election,
-  conflict-driven follower log truncation, log slicing, joint quorum.
-- `raft-storage`: segmented log with CRC32C, torn-write recovery, segment
-  rotation, compaction; sled-backed `MetaStore` (`HardState` +
-  snapshot pointer); atomic snapshot install (write-to-temp + rename).
-- `raft-net`: tonic gRPC server + outbound peer client for AppendEntries,
-  RequestVote, PreVote, InstallSnapshot, TimeoutNow.
-- `kv-state-machine`: sled-backed deterministic KV with `Set`, `Get`, `Del`,
-  `Incr`, `MSet`, `MGet`, `Exists`, `Expire`, `Persist`, `FlushDb`, `Tick`,
-  rolling state hash for divergence detection.
-- `resp-server`: RESP2/3 codec (typed + inline), command parser, async
-  dispatch.
-- `raftkv-server`: runtime that drives the core, plus TCP/gRPC/metrics
-  listeners.
-- `raftkv-cli`: smoke-test client over the RESP port.
-- `linearizability-checker`: exhaustive Wing-and-Gong checker.
-- `sim-tests`: deterministic 100% reproducible cluster simulator.
-- Helm chart, Docker / Compose, Grafana dashboard + alert rules, CI workflow.
+Key fixes include even-sized commit quorum selection, ReadIndex quorum correlation/current-term prerequisites, atomic durable applied state, real snapshot contents/install ordering, shared runtime/gRPC action execution, committed-prefix AppendEntries handling, leadership-transfer pre-vote bypass and bounded retry windows after dropped heartbeat acknowledgements.
 
-### Not yet done
+New storage/control formats are experimental. Legacy empty checkpoints fail validation. Existing original local work was committed and pushed separately before implementation. See `docs/IMPLEMENTATION_STATUS.md` for scope and `docs/VERIFICATION.md` for executed checks and explicit unverified items. Workspace package version remains `0.1.0` pending an actual release decision.
 
-- Online TLS / mTLS, ACLs, client auth.
-- gRPC membership service binding (core-side membership changes work).
-- `TTL` command (returns `-1`; backing TTL store is implemented).
-- Streaming `InstallSnapshot` over real chunks (currently passes opaque
-  `Bytes`).
-- Long-running soak suite, Jepsen suite, fault-injection nemeses.
-- Fuzz targets and criterion benches.
-- Backup / restore CLI flow.
+## 0.1 scaffold — unreleased
+
+Original deterministic Raft core, segmented storage, sled state machine, RESP/gRPC protocol scaffolding, simulator/checker and deployment assets. Original reports, dashboard, runtime files and local tracked data were preserved in the baseline commit before this milestone work.

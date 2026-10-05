@@ -8,6 +8,7 @@ data:
     raft_listen   = "0.0.0.0:{{ .Values.service.raftPort }}"
     client_listen = "0.0.0.0:{{ .Values.service.clientPort }}"
     metrics_listen = "0.0.0.0:{{ .Values.service.metricsPort }}"
+    ui_listen = "0.0.0.0:{{ .Values.service.adminPort }}"
     data_dir = "/data"
     election_timeout_ms = {{ .Values.raft.electionTimeoutMs }}
     heartbeat_ms = {{ .Values.raft.heartbeatMs }}
@@ -15,8 +16,27 @@ data:
     snapshot_entries_threshold = {{ .Values.raft.snapshotEntriesThreshold }}
     pre_vote = {{ .Values.raft.preVote }}
 
+    {{- if .Values.tls.existingSecret }}
+    [peer_tls]
+    cert = "/etc/raftkv/tls/node{id}.crt"
+    key = "/etc/raftkv/tls/node{id}.key"
+    ca = "/etc/raftkv/tls/ca.crt"
+    [admin_tls]
+    cert = "/etc/raftkv/tls/node{id}.crt"
+    key = "/etc/raftkv/tls/node{id}.key"
+    ca = "/etc/raftkv/tls/ca.crt"
+    [client_tls]
+    cert = "/etc/raftkv/tls/node{id}.crt"
+    key = "/etc/raftkv/tls/node{id}.key"
+    ca = "/etc/raftkv/tls/ca.crt"
+    {{- end }}
     {{- range $i, $_ := until (int .Values.replicas) }}
     [[peers]]
     id = {{ add1 $i }}
-    raft_addr = "http://{{ include "raftkv.fullname" $ }}-{{ $i }}.{{ include "raftkv.fullname" $ }}:{{ $.Values.service.raftPort }}"
+    raft_addr = "http{{ if $.Values.tls.existingSecret }}s{{ end }}://{{ include "raftkv.fullname" $ }}-{{ $i }}.{{ include "raftkv.fullname" $ }}:{{ $.Values.service.raftPort }}"
+    client_addr = "{{ include "raftkv.fullname" $ }}-{{ $i }}.{{ include "raftkv.fullname" $ }}:{{ $.Values.service.clientPort }}"
+    admin_addr = "http{{ if $.Values.tls.existingSecret }}s{{ end }}://{{ include "raftkv.fullname" $ }}-{{ $i }}.{{ include "raftkv.fullname" $ }}:{{ $.Values.service.adminPort }}"
+    {{- if $.Values.tls.existingSecret }}
+    certificate_sha256 = "{{ index $.Values.tls.peerCertificates (printf "%d" (add1 $i | int)) }}"
+    {{- end }}
     {{- end }}

@@ -12,6 +12,8 @@ fn entry_kind_to_pb(k: EntryKind) -> i32 {
         EntryKind::Normal => pb::EntryType::Normal as i32,
         EntryKind::ConfigJoint => pb::EntryType::ConfigJoint as i32,
         EntryKind::ConfigNew => pb::EntryType::ConfigNew as i32,
+        EntryKind::MemberRemoved => pb::EntryType::MemberRemoved as i32,
+        EntryKind::MemberMetadata => pb::EntryType::MemberMetadata as i32,
     }
 }
 
@@ -21,20 +23,34 @@ fn entry_kind_from_pb(t: i32) -> EntryKind {
         pb::EntryType::Normal => EntryKind::Normal,
         pb::EntryType::ConfigJoint => EntryKind::ConfigJoint,
         pb::EntryType::ConfigNew => EntryKind::ConfigNew,
+        pb::EntryType::MemberRemoved => EntryKind::MemberRemoved,
+        pb::EntryType::MemberMetadata => EntryKind::MemberMetadata,
     }
 }
 
 /// Convert a core entry to wire form.
 pub fn entry_to_pb(e: &Entry) -> pb::LogEntry {
-    pb::LogEntry { term: e.term, index: e.index, entry_type: entry_kind_to_pb(e.kind), data: e.data.clone() }
+    pb::LogEntry {
+        term: e.term,
+        index: e.index,
+        entry_type: entry_kind_to_pb(e.kind),
+        data: e.data.clone(),
+    }
 }
 
 /// Convert a wire entry to core form.
 pub fn entry_from_pb(e: pb::LogEntry) -> Entry {
-    Entry { term: e.term, index: e.index, kind: entry_kind_from_pb(e.entry_type), data: e.data }
+    Entry {
+        term: e.term,
+        index: e.index,
+        kind: entry_kind_from_pb(e.entry_type),
+        data: e.data,
+    }
 }
 
-fn rid_to_bytes(rid: u64) -> Vec<u8> { rid.to_le_bytes().to_vec() }
+fn rid_to_bytes(rid: u64) -> Vec<u8> {
+    rid.to_le_bytes().to_vec()
+}
 fn rid_from_bytes(b: &[u8]) -> u64 {
     let mut buf = [0u8; 8];
     let n = b.len().min(8);
@@ -93,7 +109,16 @@ pub fn vote_response_from_pb(r: pb::RequestVoteResponse, from: u64, pre_vote: bo
 
 /// Build a wire AppendEntries request.
 pub fn append_request_to_pb(msg: &Message) -> Option<pb::AppendEntriesRequest> {
-    if let Message::AppendEntries { from, term, prev_log_index, prev_log_term, entries, leader_commit, request_id } = msg {
+    if let Message::AppendEntries {
+        from,
+        term,
+        prev_log_index,
+        prev_log_term,
+        entries,
+        leader_commit,
+        request_id,
+    } = msg
+    {
         Some(pb::AppendEntriesRequest {
             term: *term,
             leader_id: *from,
@@ -103,12 +128,23 @@ pub fn append_request_to_pb(msg: &Message) -> Option<pb::AppendEntriesRequest> {
             leader_commit: *leader_commit,
             request_id: rid_to_bytes(*request_id),
         })
-    } else { None }
+    } else {
+        None
+    }
 }
 
 /// Build a wire AppendEntries response.
 pub fn append_response_to_pb(msg: &Message) -> Option<pb::AppendEntriesResponse> {
-    if let Message::AppendEntriesResponse { term, success, conflict_index, conflict_term, last_log_index, request_id, .. } = msg {
+    if let Message::AppendEntriesResponse {
+        term,
+        success,
+        conflict_index,
+        conflict_term,
+        last_log_index,
+        request_id,
+        ..
+    } = msg
+    {
         Some(pb::AppendEntriesResponse {
             term: *term,
             success: *success,
@@ -117,12 +153,22 @@ pub fn append_response_to_pb(msg: &Message) -> Option<pb::AppendEntriesResponse>
             last_log_index: *last_log_index,
             request_id: rid_to_bytes(*request_id),
         })
-    } else { None }
+    } else {
+        None
+    }
 }
 
 /// Build a wire RequestVote request.
 pub fn vote_request_to_pb(msg: &Message) -> Option<pb::RequestVoteRequest> {
-    if let Message::RequestVote { from, term, last_log_index, last_log_term, pre_vote, request_id } = msg {
+    if let Message::RequestVote {
+        from,
+        term,
+        last_log_index,
+        last_log_term,
+        pre_vote,
+        request_id,
+    } = msg
+    {
         Some(pb::RequestVoteRequest {
             term: *term,
             candidate_id: *from,
@@ -131,35 +177,56 @@ pub fn vote_request_to_pb(msg: &Message) -> Option<pb::RequestVoteRequest> {
             pre_vote: *pre_vote,
             request_id: rid_to_bytes(*request_id),
         })
-    } else { None }
+    } else {
+        None
+    }
 }
 
 /// Build a wire RequestVote response.
 pub fn vote_response_to_pb(msg: &Message) -> Option<pb::RequestVoteResponse> {
-    if let Message::RequestVoteResponse { term, vote_granted, request_id, .. } = msg {
+    if let Message::RequestVoteResponse {
+        term,
+        vote_granted,
+        request_id,
+        ..
+    } = msg
+    {
         Some(pb::RequestVoteResponse {
             term: *term,
             vote_granted: *vote_granted,
             request_id: rid_to_bytes(*request_id),
         })
-    } else { None }
+    } else {
+        None
+    }
 }
 
 /// Build a wire InstallSnapshot single-chunk message.
 pub fn snapshot_to_pb(msg: &Message) -> Option<pb::InstallSnapshotChunk> {
-    if let Message::InstallSnapshot { from, term, last_included_index, last_included_term, data, request_id } = msg {
+    if let Message::InstallSnapshot {
+        from,
+        term,
+        last_included_index,
+        last_included_term,
+        data,
+        request_id,
+    } = msg
+    {
         Some(pb::InstallSnapshotChunk {
             term: *term,
             leader_id: *from,
             last_included_index: *last_included_index,
             last_included_term: *last_included_term,
+            checksum: crc32c::crc32c(data),
             offset: 0,
             data: data.to_vec(),
             done: true,
             config: vec![],
             request_id: rid_to_bytes(*request_id),
         })
-    } else { None }
+    } else {
+        None
+    }
 }
 
 /// Reconstruct a single InstallSnapshot message from a chunk stream.
@@ -170,8 +237,28 @@ pub fn snapshot_from_chunks(chunks: Vec<pb::InstallSnapshotChunk>) -> Option<Mes
     let last_included_index = head.last_included_index;
     let last_included_term = head.last_included_term;
     let request_id = rid_from_bytes(&head.request_id);
+    let rid = head.request_id.clone();
     let mut buf = Vec::new();
-    for c in chunks { buf.extend_from_slice(&c.data); }
+    let mut done = false;
+    for c in chunks {
+        if done
+            || c.offset != buf.len() as u64
+            || c.term != term
+            || c.leader_id != from
+            || c.last_included_index != last_included_index
+            || c.last_included_term != last_included_term
+            || c.request_id != rid
+            || c.data.len() > 64 * 1024
+            || crc32c::crc32c(&c.data) != c.checksum
+        {
+            return None;
+        }
+        buf.extend_from_slice(&c.data);
+        done = c.done;
+    }
+    if !done {
+        return None;
+    }
     Some(Message::InstallSnapshot {
         from,
         term,

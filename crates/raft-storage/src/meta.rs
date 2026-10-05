@@ -3,8 +3,8 @@
 
 use std::path::Path;
 
-use raft_core::state::HardState;
 use raft_core::log::{LogIndex, Term};
+use raft_core::state::HardState;
 
 use crate::error::StorageError;
 
@@ -20,7 +20,10 @@ pub struct MetaStore {
 impl MetaStore {
     /// Open or create the metadata db at `path`.
     pub fn open<P: AsRef<Path>>(path: P) -> Result<Self, StorageError> {
-        let db = sled::Config::new().path(path).flush_every_ms(Some(50)).open()?;
+        let db = sled::Config::new()
+            .path(path)
+            .flush_every_ms(Some(50))
+            .open()?;
         Ok(Self { db })
     }
 
@@ -29,7 +32,10 @@ impl MetaStore {
     pub fn save_hard_state(&self, hs: &HardState) -> Result<(), StorageError> {
         let bytes = bincode::serialize(hs).map_err(|e| StorageError::Codec(e.to_string()))?;
         self.db.insert(KEY_HARD_STATE, bytes)?;
-        self.db.flush()?;
+        {
+            let _timer = crate::durability::fsync_histogram().start_timer();
+            self.db.flush()?;
+        }
         Ok(())
     }
 
@@ -43,9 +49,14 @@ impl MetaStore {
 
     /// Persist snapshot meta `(last_included_index, last_included_term)`.
     pub fn save_snapshot_pointer(&self, idx: LogIndex, term: Term) -> Result<(), StorageError> {
-        self.db.insert(KEY_SNAP_INDEX, &idx.to_le_bytes())?;
-        self.db.insert(KEY_SNAP_TERM, &term.to_le_bytes())?;
-        self.db.flush()?;
+        let mut batch = sled::Batch::default();
+        batch.insert(KEY_SNAP_INDEX, &idx.to_le_bytes());
+        batch.insert(KEY_SNAP_TERM, &term.to_le_bytes());
+        self.db.apply_batch(batch)?;
+        {
+            let _timer = crate::durability::fsync_histogram().start_timer();
+            self.db.flush()?;
+        }
         Ok(())
     }
 
@@ -54,12 +65,12 @@ impl MetaStore {
         let i = self.db.get(KEY_SNAP_INDEX)?;
         let t = self.db.get(KEY_SNAP_TERM)?;
         match (i, t) {
-            (Some(i), Some(t)) => {
-                let idx = u64::from_le_bytes(i[..8].try_into().unwrap_or([0; 8]));
-                let term = u64::from_le_bytes(t[..8].try_into().unwrap_or([0; 8]));
-                Ok(Some((idx, term)))
-            }
-            _ => Ok(None),
+            (Some(i), Some(t)) if i.len() == 8 && t.len() == 8 => Ok(Some((
+                u64::from_le_bytes(i.as_ref().try_into().unwrap()),
+                u64::from_le_bytes(t.as_ref().try_into().unwrap()),
+            ))),
+            (None, None) => Ok(None),
+            _ => Err(StorageError::Invariant("invalid snapshot pointer")),
         }
     }
 }

@@ -12,6 +12,9 @@ message Server {
   uint64 id = 1;
   string addr = 2;
   bool   voter = 3;
+  string client_addr = 4;
+  string admin_addr = 5;
+  string certificate_sha256 = 6;
 }
 
 message AddServerRequest {

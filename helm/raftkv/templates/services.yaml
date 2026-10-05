@@ -4,10 +4,13 @@ metadata:
   name: {{ include "raftkv.fullname" . }}
   labels:
     app.kubernetes.io/name: {{ include "raftkv.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
 spec:
   clusterIP: None
+  publishNotReadyAddresses: true
   selector:
     app.kubernetes.io/name: {{ include "raftkv.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
   ports:
     - name: raft
       port: {{ .Values.service.raftPort }}
@@ -15,6 +18,9 @@ spec:
       port: {{ .Values.service.clientPort }}
     - name: metrics
       port: {{ .Values.service.metricsPort }}
+    - name: admin
+      port: {{ .Values.service.adminPort }}
+      targetPort: admin
 ---
 apiVersion: v1
 kind: Service
@@ -22,10 +28,12 @@ metadata:
   name: {{ include "raftkv.fullname" . }}-client
   labels:
     app.kubernetes.io/name: {{ include "raftkv.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
 spec:
   type: ClusterIP
   selector:
     app.kubernetes.io/name: {{ include "raftkv.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
   ports:
     - name: client
       port: {{ .Values.service.clientPort }}

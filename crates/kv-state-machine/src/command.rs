@@ -48,12 +48,11 @@ pub enum Command {
     },
     /// FLUSHDB
     FlushDb,
-    /// Tick: a no-op command carrying the current time so the sweeper can
-    /// evict expired keys deterministically.
-    Tick {
-        /// Now in ms.
-        now_ms: u64,
-    },
+    /// Tick carrying replicated time for deterministic expiration.
+    Tick { now_ms: u64 },
+    /// Command with a replicated leader timestamp. Appended to preserve
+    /// the bincode discriminants of commands in existing logs.
+    AtTime { now_ms: u64, command: Box<Command> },
 }
 
 /// Response to a command.

@@ -10,11 +10,11 @@ name = "raftkv-server"
 path = "src/main.rs"
 
 [dependencies]
-raft-core = { path = "../raft-core" }
-raft-storage = { path = "../raft-storage" }
-raft-net = { path = "../raft-net" }
-kv-state-machine = { path = "../kv-state-machine" }
-resp-server = { path = "../resp-server" }
+raft-core = { version = "0.1.0", path = "../raft-core" }
+raft-storage = { version = "0.1.0", path = "../raft-storage" }
+raft-net = { version = "0.1.0", path = "../raft-net" }
+kv-state-machine = { version = "0.1.0", path = "../kv-state-machine" }
+resp-server = { version = "0.1.0", path = "../resp-server" }
 tokio = { workspace = true }
 tonic = { workspace = true }
 async-trait = { workspace = true }
@@ -33,3 +33,20 @@ parking_lot = { workspace = true }
 once_cell = { workspace = true }
 smallvec = { workspace = true }
 thiserror = { workspace = true }
+
+axum = { version = "0.7", features = ["macros"] }
+reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+hex = { workspace = true }
+base64 = "0.22"
+sha2 = { workspace = true }
+sim-tests = { version = "0.1.0", path = "../sim-tests" }
+url = "2"
+urlencoding = "2"
+shell-words = "1"
+tokio-util = { workspace = true }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
+rustls-pemfile = "2"
+hyper-util = { version = "0.1", features = ["server-auto", "service", "tokio"] }
+tokio-stream = { version = "0.1", features = ["net"] }
+
+hmac = "0.12"

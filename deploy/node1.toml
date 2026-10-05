@@ -2,6 +2,7 @@ id = 1
 raft_listen   = "0.0.0.0:7001"
 client_listen = "0.0.0.0:6379"
 metrics_listen = "0.0.0.0:9100"
+ui_listen = "0.0.0.0:8080"
 data_dir = "/data"
 election_timeout_ms = 300
 heartbeat_ms = 50
@@ -12,9 +13,15 @@ pre_vote = true
 [[peers]]
 id = 1
 raft_addr = "http://node1:7001"
+client_addr = "node1:6379"
+admin_addr = "http://node1:8080"
 [[peers]]
 id = 2
 raft_addr = "http://node2:7002"
+client_addr = "node2:6379"
+admin_addr = "http://node2:8080"
 [[peers]]
 id = 3
 raft_addr = "http://node3:7003"
+client_addr = "node3:6379"
+admin_addr = "http://node3:8080"

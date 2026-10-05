@@ -1,184 +1,106 @@
-<p align="center">
-  <img src="logo.png" alt="RaftKV Logo" width="280" />
-</p>
+<p align="center"><img src="logo.png" alt="RaftKV" width="220" /></p>
 
-# raftkv
+# RaftKV
 
-**A Raft-replicated key-value store in Rust with a Redis-compatible client protocol.**
+A Raft-replicated key-value store in Rust, with a Redis-compatible RESP command subset, a React operator dashboard, and an isolated deterministic simulation lab.
 
-`raftkv` is an educational distributed-systems implementation built around a deterministic Raft state machine. Nodes communicate over gRPC, persist a replicated log and snapshots, apply committed commands to a sled-backed key-value state machine, and expose the client surface through RESP2/RESP3—the wire protocol used by Redis-compatible clients.
+**Status: experimental, unreleased.** Workspace version remains `0.1.0`; this change implements the proposed `0.2.0` development milestone. Local correctness, recovery, security and GUI checks are documented in [VERIFICATION.md](docs/VERIFICATION.md). They are evidence for the tested scenarios, not a proof of correctness or production readiness.
 
-> **Status:** early-stage research/learning implementation (`0.1.0`, unreleased). It is useful for studying consensus, deterministic simulation, storage recovery, and protocol integration. It is not a drop-in production replacement for Redis, etcd, or Consul.
+The complete supplied specification is preserved verbatim as [IMPLEMENTATION_PROMPT.md](IMPLEMENTATION_PROMPT.md). [IMPLEMENTATION_STATUS.md](docs/IMPLEMENTATION_STATUS.md) maps its workstreams to implementation and verification limits.
 
-## Why this project is interesting
+## Start a local cluster and dashboard
 
-The central design choice is a strict pure/impure boundary:
-
-```text
-messages + ticks ──> raft-core ──> Action values
-                                      │
-             runtime executes I/O ────┘
-                 storage · gRPC · RESP · metrics
-```
-
-`raft-core` performs no I/O, asynchronous work, wall-clock reads, or operating-system randomness. It consumes protocol messages and timer ticks and emits explicit `Action` values. The outer runtime interprets those actions. This makes the consensus logic deterministic, replayable, and testable without a live cluster.
-
-## Implemented capabilities
-
-- Raft leader election, replication, conflict repair, quorum commit, and membership joint consensus.
-- Pre-vote and leadership transfer support.
-- Linearizable reads through the read-index protocol.
-- Segmented append-only storage with CRC32C framing and torn-tail recovery.
-- Atomic snapshot installation and snapshot retention.
-- Sled-backed metadata and key-value state machine.
-- RESP2/RESP3 command codec and Redis-compatible TCP client endpoint.
-- Tonic gRPC peer transport for Raft messages.
-- Deterministic cluster simulator and an in-process linearizability checker.
-- Prometheus text metrics endpoint, Grafana dashboard, Docker Compose setup, and Helm chart.
-
-The protocol and implementation trade-offs are documented in [ARCHITECTURE.md](ARCHITECTURE.md), with a source-level Raft invariant map in [RAFT_NOTES.md](RAFT_NOTES.md).
-
-## Workspace structure
-
-| Crate / directory | Responsibility |
-| --- | --- |
-| `crates/raft-core` | Pure Raft state machine and protocol transitions |
-| `crates/raft-storage` | Segmented log, metadata, snapshots, recovery |
-| `crates/raft-net` | Tonic gRPC peer transport and protobuf bindings |
-| `crates/kv-state-machine` | Deterministic sled-backed key-value state machine |
-| `crates/resp-server` | RESP2/RESP3 parsing, encoding, and command dispatch |
-| `crates/raftkv-server` | Runtime wiring consensus, storage, network, clients, metrics |
-| `crates/raftkv-cli` | Small operator and smoke-test client |
-| `crates/linearizability-checker` | Wing–Gong-style checker for short histories |
-| `crates/sim-tests` | Deterministic, seed-replayable cluster simulation |
-| `proto/` | Raft and administration gRPC definitions |
-| `deploy/`, `helm/` | TOML examples and Kubernetes deployment assets |
-| `grafana/` | Dashboard and alerting examples |
-
-## Quick start: three-node local cluster
-
-### Prerequisites
-
-- Rust stable (the workspace declares Rust 1.75 or newer).
-- macOS or Linux; Windows is supported through WSL.
-- Optional: `redis-cli`, Docker, Docker Compose, `kubectl`, and Helm.
-
-The build vendors `protoc`, so a system protobuf installation is not required.
+Requires Rust **1.94+**, Node.js **22.12+** (24 recommended), npm, and macOS/Linux. `protoc` is vendored.
 
 ```bash
 git clone https://github.com/jeevanu345/raftkv.git
 cd raftkv
-cargo build --workspace --release
 ./scripts/run_cluster.sh
+# Another terminal, from the repository:
+cargo run -p raftkv-server --bin raftkv-lab
+# Another terminal:
+cd ui/dashboard
+npm ci
+VITE_DEMO_MODE=false npm run dev
 ```
 
-The helper starts three local nodes:
+Open [the local dashboard](http://127.0.0.1:5173). Its seven routes are Overview, Key Explorer, Command Console, Raft Visualizer, Metrics, Simulation Lab, and Administration. Set `VITE_DEMO_MODE=true` for clearly labelled UI fixtures; live mode talks to real nodes and the separate lab process.
 
-| Node | Raft gRPC | RESP client | Metrics |
-| --- | ---: | ---: | ---: |
-| 1 | `7001` | `6379` | `9101` |
-| 2 | `7002` | `6380` | `9102` |
-| 3 | `7003` | `6381` | `9103` |
+| Node | Peer gRPC | RESP | HTTP control | Metrics |
+|---|---:|---:|---:|---:|
+| 1 | 7001 | 6379 | 8080 | 9101 |
+| 2 | 7002 | 6380 | 8081 | 9102 |
+| 3 | 7003 | 6381 | 8082 | 9103 |
 
-After an election, find the leader and exercise the cluster:
+Local scripts use `.runtime/` for new data, logs and scoped PID files. Previously preserved `.run/` files are not used. Stop with `./scripts/stop_cluster.sh`. See [HOW_TO_RUN.md](HOW_TO_RUN.md) for configuration, TLS, authentication, backups and deployment.
+
+## Implemented behavior
+
+- Pure deterministic `raft-core`, majority and joint-consensus quorum calculation, correlated ReadIndex quorum confirmation, leadership transfer and replay-safe recovery.
+- Atomic KV/TTL/applied-index/hash transactions; replicated monotonic logical time; automatic expiration; TTL/PTTL and bounded SCAN.
+- Real logical state/configuration checkpoints; SHA-256 integrity; streamed CRC-checked snapshot chunks; durable install before acknowledgement; automatic compaction and retention.
+- One serialized durable action executor shared by the runtime and gRPC paths; bounded queues and waiter deadlines; storage failures fence the node.
+- Persistent bidirectional peer streams, dynamic learner registration, catch-up checks, promotion and joint removal.
+- Typed JSON node diagnostics without command payloads, bounded SSE replay, Prometheus metrics including actual storage fsync/flush timing, and trustworthy unavailable-state rendering.
+- Optional peer mTLS with node certificate identity binding, RESP TLS/AUTH/prefix ACLs, HTTPS admin tokens/RBAC, origin checks, secure session cookies and correlated durable audit records.
+- Checksummed portable backups; inspected offline restore into an empty directory with explicit single-voter bootstrap semantics.
+- Deterministic fault simulation and replay; external real-process TCP-proxy chaos tests; bounded-history linearizability checks; seven fuzz targets; Criterion and cluster benchmark matrices.
+- Hardened Helm templates, NetworkPolicy, probes, resource limits, PVC retention, TLS/token secret mounting, ServiceMonitor/Grafana options and GitHub Actions checks.
+
+## Architecture
+
+```mermaid
+flowchart TD
+    UI[React dashboard] --> HTTP[HTTP/SSE control plane]
+    RESP[RESP clients] --> RT[Serialized runtime and durable executor]
+    HTTP --> RT
+    GRPC[gRPC peers] --> RT
+    RT --> CORE[Pure Raft state machine]
+    CORE --> ACTION[Explicit actions]
+    ACTION --> RT
+    RT --> STORE[Segmented log / metadata / snapshots]
+    RT --> KV[Transactional KV / TTL / apply pointer]
+    LAB[Separate lab API] --> SIM[Deterministic simulator]
+```
+
+Read [ARCHITECTURE.md](ARCHITECTURE.md), [API.md](docs/API.md), [SECURITY.md](docs/SECURITY.md), and [benchmark evidence](docs/BENCHMARKS.md).
+
+## Verification
 
 ```bash
-./target/release/raftkv-cli --addr 127.0.0.1:6379 status
-./target/release/raftkv-cli --addr 127.0.0.1:6379 members
-./target/release/raftkv-cli --addr 127.0.0.1:6379 set greeting "hello raft"
-./target/release/raftkv-cli --addr 127.0.0.1:6379 get greeting
-
-# Or use any Redis-compatible client against the leader:
-redis-cli -p 6379 PING
-redis-cli -p 6379 SET greeting "hello raft"
-redis-cli -p 6379 GET greeting
-redis-cli -p 6379 INFO raft
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets --locked -- -D clippy::correctness -D clippy::suspicious
+RAFTKV_SIM_SEEDS=1000 cargo test --workspace --locked
+cargo build --workspace --locked
+python3 scripts/integration_cluster.py
+python3 scripts/integration_cluster.py --nodes 5 --peer-tls
+python3 scripts/chaos_cluster.py
+python3 scripts/chaos_cluster.py --nodes 5
+python3 scripts/integration_membership.py
+python3 scripts/integration_security.py
+python3 scripts/test_lab.py
+cd ui/dashboard
+npm ci
+npm run typecheck && npm run build
+npx playwright install chromium
+npm test
+RAFTKV_UI_TEST_MODE=live npm test
 ```
 
-Writes sent to a follower currently return a `MOVED` response; use the leader directly. Stop the local cluster with:
+The `live` browser suite verifies API loading/error/empty/confirmation behavior using controlled responses. Real backend behavior is tested separately by the cluster scripts. Browser tests run headlessly from code.
 
-```bash
-./scripts/stop_cluster.sh
-```
+## Limits
 
-Logs and local data are written beneath `.run/`.
+The RESP implementation is a supported subset, not complete Redis compatibility. SCAN is weakly consistent under concurrent writes, and non-`*` glob matching currently applies to UTF-8 key names. TTL progresses with replicated logical time and has approximately one-second idle expiration granularity. Snapshot install is chunked and spooled, but the pure core receives a bounded complete snapshot buffer (256 MiB maximum).
 
-## Other deployment paths
+Fsync remains conservative and expensive; published short debug-build benchmark samples are not capacity planning data. Local fuzz smoke runs were not sanitizer/coverage instrumented; the nightly CI job supplies instrumentation. Docker image build, actual Kubernetes scheduling, Miri and long-running fuzz/soak jobs have not been verified locally. External Jepsen/Knossos/Porcupine execution requires a separately configured harness. Legacy empty snapshot files fail validation rather than being treated as valid state checkpoints.
 
-### Docker Compose
+## Dashboard preview
 
-```bash
-docker compose up --build
-```
+This screenshot shows labelled **demo fixtures**, not a production cluster.
 
-### Kubernetes / Helm
-
-```bash
-helm install raftkv ./helm/raftkv
-```
-
-The chart provides a three-replica StatefulSet, peer discovery service, client service, and persistent volume configuration. Review `helm/raftkv/values.yaml` before using it outside a local cluster.
-
-### Manual configuration
-
-`raftkv-server` accepts a TOML configuration with node identity, Raft and client bind addresses, peers, data directory, election/heartbeat timing, snapshot threshold, and pre-vote settings. See `deploy/node1.toml`, `deploy/node2.toml`, `deploy/node3.toml`, and [HOW_TO_RUN.md](HOW_TO_RUN.md).
-
-### Local operator dashboard
-
-The server also exposes a localhost-only JSON API on `127.0.0.1:8080` for the React/Vite operator console. Start the server, then in a second terminal run:
-
-```bash
-cd ui
-npm install
-npm run dev
-```
-
-Open http://localhost:5173. The console shows live Raft topology, term and commit progress, the deterministic state hash, and supports real SET, GET, and DELETE operations through the Raft runtime. Override the API bind address with `--ui-listen` when needed; keep it on localhost unless you add authentication and a restricted CORS policy.
-
-## Testing and reproducibility
-
-```bash
-cargo fmt --check
-cargo test --workspace
-cargo test -p sim-tests
-cargo test -p linearizability-checker
-cargo clippy --workspace --all-targets -- -D warnings
-```
-
-The simulator is designed to replay a run from the same seed. The separation between `raft-core` and the runtime also enables focused unit tests for election, log matching, quorum commit, joint consensus, snapshots, and read-index behavior.
-
-## Supported client commands
-
-The current command surface includes `PING`, `ECHO`, `QUIT`, `SELECT`, `COMMAND`, `INFO`, `CLUSTER NODES`, `CLUSTER INFO`, `DBSIZE`, `GET`, `MGET`, `EXISTS`, `SET`, `DEL`, `INCR`, `DECR`, `MSET`, `EXPIRE`, `PERSIST`, and `FLUSHDB`.
-
-The backing state machine has TTL support; the `TTL` command still reports `-1` and is listed on the project backlog.
-
-## Observability
-
-Each node exposes Prometheus text metrics on its configured metrics port:
-
-```bash
-curl http://127.0.0.1:9101/metrics
-```
-
-Import `grafana/dashboards/raftkv.json` for a reference dashboard and review `grafana/alerting/alerts.yml` for example alerts.
-
-## Current limitations and roadmap
-
-The project intentionally documents its unfinished edges:
-
-- TLS/mTLS, ACLs, and client authentication are not complete.
-- Snapshot transfer currently passes an opaque payload rather than streaming chunks.
-- Membership-change plumbing is not yet exposed as a complete gRPC administration workflow.
-- Jepsen-scale fault injection, fuzzing, long-running soak tests, and benchmark suites remain future work.
-- Backup/restore tooling and automatic follower redirect handling are not complete.
-
-See [CHANGELOG.md](CHANGELOG.md) for the maintained implementation checklist.
-
-## Contributing
-
-Small, focused pull requests are welcome. For consensus changes, include the invariant being protected, a deterministic test or simulator scenario where possible, and the failure mode the test covers. Run formatting, tests, and Clippy before opening a pull request.
+![Dashboard overview](docs/screenshots/cluster-overview.png)
 
 ## License
 
-Apache-2.0. See the workspace metadata and repository history for details.
+Apache-2.0, as declared in the workspace metadata.

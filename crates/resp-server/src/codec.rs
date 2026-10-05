@@ -21,15 +21,25 @@ pub enum RespFrame {
 
 impl RespFrame {
     /// Convenience: build a simple OK reply.
-    pub fn ok() -> Self { Self::Simple("OK".into()) }
+    pub fn ok() -> Self {
+        Self::Simple("OK".into())
+    }
     /// Convenience: build a nil bulk reply.
-    pub fn nil() -> Self { Self::Bulk(None) }
+    pub fn nil() -> Self {
+        Self::Bulk(None)
+    }
     /// Convenience: build an error.
-    pub fn err(s: impl Into<String>) -> Self { Self::Error(s.into()) }
+    pub fn err(s: impl Into<String>) -> Self {
+        Self::Error(s.into())
+    }
     /// Convenience: build an integer.
-    pub fn int(n: i64) -> Self { Self::Integer(n) }
+    pub fn int(n: i64) -> Self {
+        Self::Integer(n)
+    }
     /// Convenience: build a bulk string.
-    pub fn bulk(b: impl Into<Vec<u8>>) -> Self { Self::Bulk(Some(b.into())) }
+    pub fn bulk(b: impl Into<Vec<u8>>) -> Self {
+        Self::Bulk(Some(b.into()))
+    }
 }
 
 /// Tokio codec implementing RESP2.
@@ -47,15 +57,23 @@ fn parse_int(buf: &[u8]) -> io::Result<i64> {
         .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "bad integer"))
 }
 
-fn try_decode(buf: &[u8]) -> io::Result<Option<(RespFrame, usize)>> {
-    if buf.is_empty() { return Ok(None); }
+fn try_decode_depth(buf: &[u8], depth: usize) -> io::Result<Option<(RespFrame, usize)>> {
+    if depth > 32 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "RESP nesting too deep",
+        ));
+    }
+    if buf.is_empty() {
+        return Ok(None);
+    }
     match buf[0] {
-        b'+' | b'-' | b':' | b'$' | b'*' => decode_typed(buf),
+        b'+' | b'-' | b':' | b'$' | b'*' => decode_typed(buf, depth),
         _ => decode_inline(buf),
     }
 }
 
-fn decode_typed(buf: &[u8]) -> io::Result<Option<(RespFrame, usize)>> {
+fn decode_typed(buf: &[u8], depth: usize) -> io::Result<Option<(RespFrame, usize)>> {
     let kind = buf[0];
     let line_end = match find_crlf(&buf[1..]) {
         Some(p) => p + 1,
@@ -82,20 +100,44 @@ fn decode_typed(buf: &[u8]) -> io::Result<Option<(RespFrame, usize)>> {
         b'$' => {
             let n = parse_int(body)?;
             let after_hdr = line_end + 2;
-            if n < 0 { return Ok(Some((RespFrame::Bulk(None), after_hdr))); }
+            if n < 0 {
+                return Ok(Some((RespFrame::Bulk(None), after_hdr)));
+            }
             let n_us = n as usize;
-            if buf.len() < after_hdr + n_us + 2 { return Ok(None); }
+            if n_us > 16 * 1024 * 1024 {
+                return Err(io::Error::new(io::ErrorKind::InvalidData, "bulk too large"));
+            }
+            if buf.len() < after_hdr + n_us + 2 {
+                return Ok(None);
+            }
+            if &buf[after_hdr + n_us..after_hdr + n_us + 2] != b"\r\n" {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "bad bulk terminator",
+                ));
+            }
             let payload = buf[after_hdr..after_hdr + n_us].to_vec();
             Ok(Some((RespFrame::Bulk(Some(payload)), after_hdr + n_us + 2)))
         }
         b'*' => {
             let n = parse_int(body)?;
             let mut consumed = line_end + 2;
-            if n < 0 { return Ok(Some((RespFrame::Array(vec![]), consumed))); }
+            if n < 0 {
+                return Ok(Some((RespFrame::Array(vec![]), consumed)));
+            }
+            if n > 4096 {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "array too large",
+                ));
+            }
             let mut out = Vec::with_capacity(n as usize);
             for _ in 0..n {
-                match try_decode(&buf[consumed..])? {
-                    Some((f, c)) => { out.push(f); consumed += c; }
+                match try_decode_depth(&buf[consumed..], depth + 1)? {
+                    Some((f, c)) => {
+                        out.push(f);
+                        consumed += c;
+                    }
                     None => return Ok(None),
                 }
             }
@@ -125,7 +167,13 @@ impl Decoder for RespCodec {
     type Error = io::Error;
 
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
-        match try_decode(src.as_ref())? {
+        if src.len() > 20 * 1024 * 1024 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "frame too large",
+            ));
+        }
+        match try_decode_depth(src.as_ref(), 0)? {
             Some((frame, consumed)) => {
                 src.advance(consumed);
                 Ok(Some(frame))
@@ -166,7 +214,9 @@ fn encode_into(frame: &RespFrame, out: &mut BytesMut) {
             out.put_u8(b'*');
             out.extend_from_slice(arr.len().to_string().as_bytes());
             out.put_slice(b"\r\n");
-            for f in arr { encode_into(f, out); }
+            for f in arr {
+                encode_into(f, out);
+            }
         }
     }
 }
@@ -213,8 +263,11 @@ mod tests {
         match f {
             RespFrame::Array(parts) => {
                 assert_eq!(parts.len(), 1);
-                if let RespFrame::Bulk(Some(b)) = &parts[0] { assert_eq!(b, b"PING"); }
-                else { panic!("not bulk"); }
+                if let RespFrame::Bulk(Some(b)) = &parts[0] {
+                    assert_eq!(b, b"PING");
+                } else {
+                    panic!("not bulk");
+                }
             }
             _ => panic!("not array"),
         }

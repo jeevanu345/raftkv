@@ -6,7 +6,7 @@ license.workspace = true
 description = "tonic gRPC transport layer for Raft RPCs."
 
 [dependencies]
-raft-core = { path = "../raft-core" }
+raft-core = { version = "0.1.0", path = "../raft-core" }
 tokio = { workspace = true }
 tonic = { workspace = true }
 prost = { workspace = true }
@@ -15,6 +15,14 @@ async-trait = { workspace = true }
 futures = { workspace = true }
 tracing = { workspace = true }
 thiserror = { workspace = true }
+
+crc32c = { workspace = true }
+
+sha2 = { workspace = true }
+hex = { workspace = true }
+
+tokio-stream = "0.1"
+tempfile = { workspace = true }
 
 [build-dependencies]
 tonic-build = { workspace = true }

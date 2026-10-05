@@ -1,13 +1,13 @@
 # Multi-stage build for raftkv-server.
 #
 # Stage 1: build the static-ish release binary.
-FROM rust:1.81-bookworm AS builder
+FROM rust:1.94-bookworm AS builder
 RUN apt-get update && apt-get install -y --no-install-recommends \
     pkg-config protobuf-compiler ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /src
 COPY . .
-RUN cargo build --release -p raftkv-server -p raftkv-cli
+RUN cargo build --locked --release -p raftkv-server -p raftkv-cli
 
 # Stage 2: minimal runtime.
 FROM debian:bookworm-slim
@@ -20,5 +20,5 @@ COPY --from=builder /src/target/release/raftkv-cli    /usr/local/bin/raftkv-cli
 RUN mkdir -p /data && chown raftkv:raftkv /data
 USER raftkv
 WORKDIR /data
-EXPOSE 7001 6379 9100
+EXPOSE 7001 6379 9100 8080
 ENTRYPOINT ["tini", "--", "/usr/local/bin/raftkv-server"]

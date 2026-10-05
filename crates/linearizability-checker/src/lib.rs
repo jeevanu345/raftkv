@@ -34,13 +34,23 @@ pub struct Operation {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Op {
     /// `GET key -> value`.
-    Get { key: Vec<u8>, observed: Option<Vec<u8>> },
+    Get {
+        key: Vec<u8>,
+        observed: Option<Vec<u8>>,
+    },
     /// `SET key = value -> Ok`.
     Set { key: Vec<u8>, value: Vec<u8> },
     /// `DEL key -> bool` (returns true if a value was removed).
-    Del { key: Vec<u8>, observed_removed: bool },
+    Del {
+        key: Vec<u8>,
+        observed_removed: bool,
+    },
     /// `INCR key by delta -> new_value`.
-    Incr { key: Vec<u8>, delta: i64, observed: i64 },
+    Incr {
+        key: Vec<u8>,
+        delta: i64,
+        observed: i64,
+    },
 }
 
 /// Result of a linearization attempt.
@@ -71,7 +81,9 @@ pub enum CheckerError {
 /// and verify it is consistent with the current model state.
 pub fn check(history: &[Operation]) -> Result<Verdict, CheckerError> {
     for (i, op) in history.iter().enumerate() {
-        if op.invocation > op.response { return Err(CheckerError::InconsistentTimestamps(i)); }
+        if op.invocation > op.response {
+            return Err(CheckerError::InconsistentTimestamps(i));
+        }
     }
     let mut state: BTreeMap<Vec<u8>, Vec<u8>> = BTreeMap::new();
     let mut remaining: Vec<usize> = (0..history.len()).collect();
@@ -87,20 +99,31 @@ fn dfs(
     remaining: &mut Vec<usize>,
     state: &mut BTreeMap<Vec<u8>, Vec<u8>>,
 ) -> bool {
-    if remaining.is_empty() { return true; }
+    if remaining.is_empty() {
+        return true;
+    }
     // Find minimum-set: ops whose invocation <= min(response of others).
-    let earliest_response = remaining.iter().map(|&i| history[i].response).min().unwrap_or(u64::MAX);
+    let earliest_response = remaining
+        .iter()
+        .map(|&i| history[i].response)
+        .min()
+        .unwrap_or(u64::MAX);
     let candidates: Vec<usize> = remaining
         .iter()
         .copied()
         .filter(|&i| history[i].invocation <= earliest_response)
         .collect();
     for c in candidates {
-        if !apply_consistent(&history[c], state) { continue; }
         let saved = state.clone();
+        if !apply_consistent(&history[c], state) {
+            *state = saved;
+            continue;
+        }
         let pos = remaining.iter().position(|&x| x == c).unwrap();
         remaining.remove(pos);
-        if dfs(history, remaining, state) { return true; }
+        if dfs(history, remaining, state) {
+            return true;
+        }
         remaining.insert(pos, c);
         *state = saved;
     }
@@ -110,17 +133,38 @@ fn dfs(
 fn apply_consistent(op: &Operation, state: &mut BTreeMap<Vec<u8>, Vec<u8>>) -> bool {
     match &op.op {
         Op::Get { key, observed } => state.get(key).cloned() == *observed,
-        Op::Set { key, value } => { state.insert(key.clone(), value.clone()); true }
-        Op::Del { key, observed_removed } => {
+        Op::Set { key, value } => {
+            state.insert(key.clone(), value.clone());
+            true
+        }
+        Op::Del {
+            key,
+            observed_removed,
+        } => {
             let had = state.remove(key).is_some();
             had == *observed_removed
         }
-        Op::Incr { key, delta, observed } => {
-            let cur = state.get(key)
-                .and_then(|v| std::str::from_utf8(v).ok().and_then(|s| s.parse::<i64>().ok()))
-                .unwrap_or(0);
-            let new = cur.saturating_add(*delta);
-            if new != *observed { return false; }
+        Op::Incr {
+            key,
+            delta,
+            observed,
+        } => {
+            let cur = match state.get(key) {
+                None => 0,
+                Some(value) => match std::str::from_utf8(value)
+                    .ok()
+                    .and_then(|s| s.parse::<i64>().ok())
+                {
+                    Some(n) => n,
+                    None => return false,
+                },
+            };
+            let Some(new) = cur.checked_add(*delta) else {
+                return false;
+            };
+            if new != *observed {
+                return false;
+            }
             state.insert(key.clone(), new.to_string().into_bytes());
             true
         }
@@ -132,14 +176,35 @@ mod tests {
     use super::*;
 
     fn op(client: u64, t0: u64, t1: u64, op: Op) -> Operation {
-        Operation { client, invocation: t0, response: t1, op }
+        Operation {
+            client,
+            invocation: t0,
+            response: t1,
+            op,
+        }
     }
 
     #[test]
     fn sequential_set_get_is_linearizable() {
         let h = vec![
-            op(1, 0, 1, Op::Set { key: b"x".to_vec(), value: b"1".to_vec() }),
-            op(2, 2, 3, Op::Get { key: b"x".to_vec(), observed: Some(b"1".to_vec()) }),
+            op(
+                1,
+                0,
+                1,
+                Op::Set {
+                    key: b"x".to_vec(),
+                    value: b"1".to_vec(),
+                },
+            ),
+            op(
+                2,
+                2,
+                3,
+                Op::Get {
+                    key: b"x".to_vec(),
+                    observed: Some(b"1".to_vec()),
+                },
+            ),
         ];
         assert!(matches!(check(&h).unwrap(), Verdict::Linearizable));
     }
@@ -147,20 +212,96 @@ mod tests {
     #[test]
     fn stale_read_after_set_is_not_linearizable() {
         let h = vec![
-            op(1, 0, 1, Op::Set { key: b"x".to_vec(), value: b"1".to_vec() }),
-            op(2, 2, 3, Op::Get { key: b"x".to_vec(), observed: None }),
+            op(
+                1,
+                0,
+                1,
+                Op::Set {
+                    key: b"x".to_vec(),
+                    value: b"1".to_vec(),
+                },
+            ),
+            op(
+                2,
+                2,
+                3,
+                Op::Get {
+                    key: b"x".to_vec(),
+                    observed: None,
+                },
+            ),
         ];
-        assert!(matches!(check(&h).unwrap(), Verdict::NotLinearizable { .. }));
+        assert!(matches!(
+            check(&h).unwrap(),
+            Verdict::NotLinearizable { .. }
+        ));
     }
 
     #[test]
     fn concurrent_set_picks_a_winner() {
         // Two concurrent SETs; subsequent GET must see one of them.
         let h = vec![
-            op(1, 0, 5, Op::Set { key: b"x".to_vec(), value: b"a".to_vec() }),
-            op(2, 0, 5, Op::Set { key: b"x".to_vec(), value: b"b".to_vec() }),
-            op(3, 6, 7, Op::Get { key: b"x".to_vec(), observed: Some(b"a".to_vec()) }),
+            op(
+                1,
+                0,
+                5,
+                Op::Set {
+                    key: b"x".to_vec(),
+                    value: b"a".to_vec(),
+                },
+            ),
+            op(
+                2,
+                0,
+                5,
+                Op::Set {
+                    key: b"x".to_vec(),
+                    value: b"b".to_vec(),
+                },
+            ),
+            op(
+                3,
+                6,
+                7,
+                Op::Get {
+                    key: b"x".to_vec(),
+                    observed: Some(b"a".to_vec()),
+                },
+            ),
         ];
         assert!(matches!(check(&h).unwrap(), Verdict::Linearizable));
+    }
+    #[test]
+    fn inconsistent_delete_does_not_poison_other_search_branches() {
+        let history = vec![
+            op(
+                1,
+                0,
+                5,
+                Op::Set {
+                    key: b"x".to_vec(),
+                    value: b"a".to_vec(),
+                },
+            ),
+            op(
+                2,
+                0,
+                5,
+                Op::Del {
+                    key: b"x".to_vec(),
+                    observed_removed: false,
+                },
+            ),
+            op(
+                3,
+                6,
+                7,
+                Op::Get {
+                    key: b"x".to_vec(),
+                    observed: Some(b"a".to_vec()),
+                },
+            ),
+        ];
+        assert!(matches!(check(&history).unwrap(), Verdict::Linearizable));
     }
 }

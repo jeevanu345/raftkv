@@ -6,7 +6,7 @@ license.workspace = true
 description = "Durable storage backend (segmented log + sled meta) for raft-core."
 
 [dependencies]
-raft-core = { path = "../raft-core" }
+raft-core = { version = "0.1.0", path = "../raft-core" }
 serde = { workspace = true }
 bincode = { workspace = true }
 bytes = { workspace = true }
@@ -15,6 +15,10 @@ tracing = { workspace = true }
 crc32c = { workspace = true }
 sled = { workspace = true }
 parking_lot = { workspace = true }
+
+sha2 = { workspace = true }
+hex = { workspace = true }
+prometheus = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

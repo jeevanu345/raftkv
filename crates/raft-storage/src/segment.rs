@@ -35,8 +35,18 @@ pub struct Segment {
 
 impl Segment {
     /// Create a new segment file (truncating any existing file).
-    pub fn create(path: &Path, base_index: LogIndex, max_size_bytes: u64, sync_each: bool) -> Result<Self, StorageError> {
-        let file = OpenOptions::new().read(true).write(true).create(true).truncate(true).open(path)?;
+    pub fn create(
+        path: &Path,
+        base_index: LogIndex,
+        max_size_bytes: u64,
+        sync_each: bool,
+    ) -> Result<Self, StorageError> {
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(path)?;
         Ok(Self {
             path: path.to_path_buf(),
             base_index,
@@ -50,7 +60,12 @@ impl Segment {
 
     /// Open an existing segment, scanning it to recover the index and detect
     /// torn writes. Returns the loaded segment plus the highest valid index.
-    pub fn open(path: &Path, base_index: LogIndex, max_size_bytes: u64, sync_each: bool) -> Result<(Self, Option<LogIndex>), StorageError> {
+    pub fn open(
+        path: &Path,
+        base_index: LogIndex,
+        max_size_bytes: u64,
+        sync_each: bool,
+    ) -> Result<(Self, Option<LogIndex>), StorageError> {
         let mut file = OpenOptions::new().read(true).write(true).open(path)?;
         let len = file.metadata()?.len();
         file.seek(SeekFrom::Start(0))?;
@@ -67,14 +82,22 @@ impl Segment {
             let crc = u32::from_le_bytes(buf[offset + 4..offset + 8].try_into().unwrap());
             let payload_start = offset + 8;
             let payload_end = payload_start + length;
-            if payload_end > buf.len() { break; }
+            if payload_end > buf.len() {
+                break;
+            }
             let payload = &buf[payload_start..payload_end];
             let actual = crc32c::crc32c(payload);
-            if actual != crc { break; }
+            if actual != crc {
+                break;
+            }
             let entry: Entry = match bincode::deserialize(payload) {
                 Ok(e) => e,
                 Err(_) => break,
             };
+            let expected = highest.map_or(base_index, |i| i + 1);
+            if entry.index != expected {
+                return Err(StorageError::Invariant("noncontiguous segment records"));
+            }
             index.push((entry.index, offset as u64));
             highest = Some(entry.index);
             offset = payload_end;
@@ -83,6 +106,7 @@ impl Segment {
         // Truncate any garbage tail.
         if last_good_off < len {
             file.set_len(last_good_off)?;
+            crate::durability::sync_data(&file)?;
         }
         file.seek(SeekFrom::End(0))?;
         Ok((
@@ -103,7 +127,8 @@ impl Segment {
     pub fn append(&mut self, entry: &Entry) -> Result<(), StorageError> {
         let payload = bincode::serialize(entry).map_err(|e| StorageError::Codec(e.to_string()))?;
         let crc = crc32c::crc32c(&payload);
-        let length = u32::try_from(payload.len()).map_err(|_| StorageError::Invariant("entry too large"))?;
+        let length =
+            u32::try_from(payload.len()).map_err(|_| StorageError::Invariant("entry too large"))?;
         let mut hdr = [0u8; 8];
         hdr[..4].copy_from_slice(&length.to_le_bytes());
         hdr[4..].copy_from_slice(&crc.to_le_bytes());
@@ -114,22 +139,26 @@ impl Segment {
         self.write_offset += 8 + payload.len() as u64;
         self.index.push((entry.index, off));
         if self.sync_each {
-            self.file.sync_data()?;
+            crate::durability::sync_data(&self.file)?;
         }
         Ok(())
     }
 
     /// fsync (caller-controlled, used by group commit).
     pub fn sync(&mut self) -> Result<(), StorageError> {
-        self.file.sync_data()?;
+        crate::durability::sync_data(&self.file)?;
         Ok(())
     }
 
     /// Whether this segment is at or above its max size.
-    pub fn is_full(&self) -> bool { self.write_offset >= self.max_size_bytes }
+    pub fn is_full(&self) -> bool {
+        self.write_offset >= self.max_size_bytes
+    }
 
     /// Last log index in this segment, if any.
-    pub fn last_index(&self) -> Option<LogIndex> { self.index.last().map(|(i, _)| *i) }
+    pub fn last_index(&self) -> Option<LogIndex> {
+        self.index.last().map(|(i, _)| *i)
+    }
 
     /// Read entry at `index`, if present in this segment.
     pub fn read(&mut self, index: LogIndex) -> Result<Option<Entry>, StorageError> {
@@ -145,9 +174,13 @@ impl Segment {
         let mut buf = vec![0u8; length];
         self.file.read_exact(&mut buf)?;
         if crc32c::crc32c(&buf) != crc {
-            return Err(StorageError::Crc { file: self.path.display().to_string(), offset: pos });
+            return Err(StorageError::Crc {
+                file: self.path.display().to_string(),
+                offset: pos,
+            });
         }
-        let entry: Entry = bincode::deserialize(&buf).map_err(|e| StorageError::Codec(e.to_string()))?;
+        let entry: Entry =
+            bincode::deserialize(&buf).map_err(|e| StorageError::Codec(e.to_string()))?;
         self.file.seek(SeekFrom::End(0))?;
         Ok(Some(entry))
     }
@@ -160,6 +193,7 @@ impl Segment {
             let off = self.index[pos].1;
             self.index.truncate(pos);
             self.file.set_len(off)?;
+            crate::durability::sync_data(&self.file)?;
             self.file.seek(SeekFrom::End(0))?;
             self.write_offset = off;
         }

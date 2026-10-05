@@ -46,7 +46,9 @@ struct Inner {
     snapshot_index: LogIndex,
 }
 
-fn segment_filename(base_index: LogIndex) -> String { format!("{:020}.log", base_index) }
+fn segment_filename(base_index: LogIndex) -> String {
+    format!("{:020}.log", base_index)
+}
 
 fn parse_segment_index(p: &Path) -> Option<LogIndex> {
     let stem = p.file_stem()?.to_str()?;
@@ -66,9 +68,13 @@ impl SegmentedLog {
         let mut segments: Vec<Segment> = Vec::new();
         let mut last_index: LogIndex = 0;
         for path in entries {
-            let base = parse_segment_index(&path).ok_or(StorageError::Invariant("bad segment filename"))?;
-            let (seg, hi) = Segment::open(&path, base, cfg.max_segment_bytes, cfg.sync_each_append)?;
-            if let Some(h) = hi { last_index = last_index.max(h); }
+            let base = parse_segment_index(&path)
+                .ok_or(StorageError::Invariant("bad segment filename"))?;
+            let (seg, hi) =
+                Segment::open(&path, base, cfg.max_segment_bytes, cfg.sync_each_append)?;
+            if let Some(h) = hi {
+                last_index = last_index.max(h);
+            }
             segments.push(seg);
         }
         if segments.is_empty() {
@@ -78,22 +84,36 @@ impl SegmentedLog {
         }
         Ok(Self {
             cfg,
-            inner: Mutex::new(Inner { segments, last_index, snapshot_index: 0 }),
+            inner: Mutex::new(Inner {
+                segments,
+                last_index,
+                snapshot_index: 0,
+            }),
         })
     }
 
     /// Last index stored in the log.
-    pub fn last_index(&self) -> LogIndex { self.inner.lock().last_index }
+    pub fn last_index(&self) -> LogIndex {
+        self.inner.lock().last_index
+    }
 
     /// First index that may still be served from the log (snapshot+1).
-    pub fn first_index(&self) -> LogIndex { self.inner.lock().snapshot_index + 1 }
+    pub fn first_index(&self) -> LogIndex {
+        self.inner.lock().snapshot_index + 1
+    }
 
     /// Append a batch of entries (single fsync at end).
     pub fn append(&self, entries: &[Entry]) -> Result<(), StorageError> {
-        if entries.is_empty() { return Ok(()); }
+        if entries.is_empty() {
+            return Ok(());
+        }
         let mut inner = self.inner.lock();
         let expected = inner.last_index + 1;
-        if entries[0].index != expected {
+        if entries
+            .iter()
+            .enumerate()
+            .any(|(offset, e)| e.index != expected + offset as u64)
+        {
             return Err(StorageError::Invariant("non-contiguous append"));
         }
         for e in entries {
@@ -101,32 +121,46 @@ impl SegmentedLog {
             let needs_roll = inner
                 .segments
                 .last()
-                .map(Segment::is_full)
+                .map(|segment| {
+                    segment.is_full() || (segment.index.is_empty() && segment.base_index != e.index)
+                })
                 .unwrap_or(true);
             if needs_roll {
                 let path = self.cfg.dir.join(segment_filename(e.index));
-                let seg = Segment::create(&path, e.index, self.cfg.max_segment_bytes, self.cfg.sync_each_append)?;
+                let seg = Segment::create(
+                    &path,
+                    e.index,
+                    self.cfg.max_segment_bytes,
+                    self.cfg.sync_each_append,
+                )?;
                 inner.segments.push(seg);
             }
             let seg = inner.segments.last_mut().expect("segment");
             seg.append(e)?;
             inner.last_index = e.index;
         }
-        if let Some(seg) = inner.segments.last_mut() { seg.sync()?; }
+        if let Some(seg) = inner.segments.last_mut() {
+            seg.sync()?;
+        }
+        crate::durability::sync_all(&std::fs::File::open(&self.cfg.dir)?)?;
         Ok(())
     }
 
     /// Force an fsync.
     pub fn flush(&self) -> Result<(), StorageError> {
         let mut inner = self.inner.lock();
-        if let Some(seg) = inner.segments.last_mut() { seg.sync()?; }
+        if let Some(seg) = inner.segments.last_mut() {
+            seg.sync()?;
+        }
         Ok(())
     }
 
     /// Read a single entry by index.
     pub fn read(&self, index: LogIndex) -> Result<Option<Entry>, StorageError> {
         let mut inner = self.inner.lock();
-        if index <= inner.snapshot_index || index > inner.last_index { return Ok(None); }
+        if index <= inner.snapshot_index || index > inner.last_index {
+            return Ok(None);
+        }
         // Find the right segment (largest base_index <= index).
         let pos = match inner.segments.iter().rposition(|s| s.base_index <= index) {
             Some(p) => p,
@@ -137,11 +171,22 @@ impl SegmentedLog {
 
     /// Read entries with indices in `[from, to)`. Caller-supplied buffer to
     /// avoid allocation churn in hot paths.
-    pub fn read_range(&self, from: LogIndex, to: LogIndex, out: &mut Vec<Entry>) -> Result<(), StorageError> {
+    pub fn read_range(
+        &self,
+        from: LogIndex,
+        to: LogIndex,
+        out: &mut Vec<Entry>,
+    ) -> Result<(), StorageError> {
         out.clear();
-        if to <= from { return Ok(()); }
+        if to <= from {
+            return Ok(());
+        }
         for i in from..to {
-            if let Some(e) = self.read(i)? { out.push(e); } else { break; }
+            if let Some(e) = self.read(i)? {
+                out.push(e);
+            } else {
+                break;
+            }
         }
         Ok(())
     }
@@ -149,14 +194,18 @@ impl SegmentedLog {
     /// Truncate so no entry with `index >= from` remains.
     pub fn truncate_from(&self, from: LogIndex) -> Result<(), StorageError> {
         let mut inner = self.inner.lock();
-        if from > inner.last_index { return Ok(()); }
+        if from > inner.last_index {
+            return Ok(());
+        }
         // Drop whole segments whose base_index >= from
         while let Some(seg) = inner.segments.last() {
             if seg.base_index >= from {
                 let p = seg.path.clone();
                 inner.segments.pop();
-                drop(fs::remove_file(p));
-            } else { break; }
+                fs::remove_file(p)?;
+            } else {
+                break;
+            }
         }
         if let Some(seg) = inner.segments.last_mut() {
             seg.truncate_from(from)?;
@@ -164,10 +213,16 @@ impl SegmentedLog {
         } else {
             // recreate empty initial segment
             let path = self.cfg.dir.join(segment_filename(from.max(1)));
-            let seg = Segment::create(&path, from.max(1), self.cfg.max_segment_bytes, self.cfg.sync_each_append)?;
+            let seg = Segment::create(
+                &path,
+                from.max(1),
+                self.cfg.max_segment_bytes,
+                self.cfg.sync_each_append,
+            )?;
             inner.segments.push(seg);
             inner.last_index = from.saturating_sub(1);
         }
+        crate::durability::sync_all(&std::fs::File::open(&self.cfg.dir)?)?;
         Ok(())
     }
 
@@ -186,9 +241,13 @@ impl SegmentedLog {
             if drop_first {
                 let s = inner.segments.remove(0);
                 to_drop.push(s.path.clone());
-            } else { break; }
+            } else {
+                break;
+            }
         }
-        for p in to_drop { let _ = fs::remove_file(p); }
+        for p in to_drop {
+            let _ = fs::remove_file(p);
+        }
         inner.snapshot_index = last_included_index;
         Ok(())
     }
@@ -215,8 +274,11 @@ mod tests {
             dir: dir.path().to_path_buf(),
             max_segment_bytes: 1024,
             sync_each_append: false,
-        }).unwrap();
-        let entries = (1u64..=20).map(|i| Entry::normal(1, i, vec![i as u8; 50])).collect::<Vec<_>>();
+        })
+        .unwrap();
+        let entries = (1u64..=20)
+            .map(|i| Entry::normal(1, i, vec![i as u8; 50]))
+            .collect::<Vec<_>>();
         log.append(&entries).unwrap();
         assert_eq!(log.last_index(), 20);
         for i in 1u64..=20 {
@@ -227,7 +289,12 @@ mod tests {
     #[test]
     fn truncate_drops_tail() {
         let dir = tempdir().unwrap();
-        let log = SegmentedLog::open(SegmentedLogConfig { dir: dir.path().into(), max_segment_bytes: 64*1024, sync_each_append: false }).unwrap();
+        let log = SegmentedLog::open(SegmentedLogConfig {
+            dir: dir.path().into(),
+            max_segment_bytes: 64 * 1024,
+            sync_each_append: false,
+        })
+        .unwrap();
         let entries: Vec<_> = (1..=10).map(|i| Entry::normal(1, i, vec![1])).collect();
         log.append(&entries).unwrap();
         log.truncate_from(6).unwrap();
@@ -239,11 +306,21 @@ mod tests {
     fn reopen_recovers_entries() {
         let dir = tempdir().unwrap();
         {
-            let log = SegmentedLog::open(SegmentedLogConfig { dir: dir.path().into(), max_segment_bytes: 64*1024, sync_each_append: true }).unwrap();
+            let log = SegmentedLog::open(SegmentedLogConfig {
+                dir: dir.path().into(),
+                max_segment_bytes: 64 * 1024,
+                sync_each_append: true,
+            })
+            .unwrap();
             let entries: Vec<_> = (1..=5).map(|i| Entry::normal(1, i, vec![1])).collect();
             log.append(&entries).unwrap();
         }
-        let log = SegmentedLog::open(SegmentedLogConfig { dir: dir.path().into(), max_segment_bytes: 64*1024, sync_each_append: false }).unwrap();
+        let log = SegmentedLog::open(SegmentedLogConfig {
+            dir: dir.path().into(),
+            max_segment_bytes: 64 * 1024,
+            sync_each_append: false,
+        })
+        .unwrap();
         assert_eq!(log.last_index(), 5);
     }
 }

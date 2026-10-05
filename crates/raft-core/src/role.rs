@@ -20,7 +20,7 @@ impl Role {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Follower => "follower",
-            Self::PreCandidate => "precandidate",
+            Self::PreCandidate => "pre-candidate",
             Self::Candidate => "candidate",
             Self::Leader => "leader",
         }

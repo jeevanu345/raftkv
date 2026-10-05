@@ -1,0 +1,14 @@
+.git
+.run
+.runtime
+target
+**/target
+**/node_modules
+**/dist
+**/test-results
+**/playwright-report
+**/__pycache__
+**/*.tsbuildinfo
+fuzz/artifacts
+fuzz/corpus
+docs/screenshots

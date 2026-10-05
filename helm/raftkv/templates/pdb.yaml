@@ -4,8 +4,9 @@ kind: PodDisruptionBudget
 metadata:
   name: {{ include "raftkv.fullname" . }}
 spec:
-  minAvailable: {{ .Values.podDisruptionBudget.minAvailable }}
+  minAvailable: {{ .Values.podDisruptionBudget.minAvailable | default (add1 (div (int .Values.replicas) 2)) }}
   selector:
     matchLabels:
       app.kubernetes.io/name: {{ include "raftkv.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}

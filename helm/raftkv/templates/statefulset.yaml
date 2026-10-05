@@ -4,24 +4,78 @@ metadata:
   name: {{ include "raftkv.fullname" . }}
   labels:
     app.kubernetes.io/name: {{ include "raftkv.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
 spec:
   serviceName: {{ include "raftkv.fullname" . }}
+  podManagementPolicy: Parallel
+  persistentVolumeClaimRetentionPolicy:
+    whenDeleted: Retain
+    whenScaled: Retain
   replicas: {{ .Values.replicas }}
   selector:
     matchLabels:
       app.kubernetes.io/name: {{ include "raftkv.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
   template:
     metadata:
       labels:
         app.kubernetes.io/name: {{ include "raftkv.name" . }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
     spec:
       terminationGracePeriodSeconds: 60
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: {{ include "raftkv.name" . }}
+                    app.kubernetes.io/instance: {{ .Release.Name }}
+                topologyKey: kubernetes.io/hostname
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: {{ include "raftkv.name" . }}
+              app.kubernetes.io/instance: {{ .Release.Name }}
       containers:
         - name: raftkv-server
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           args:
             - --config=/etc/raftkv/config.toml
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          env:
+            - name: RAFTKV_POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            {{- if .Values.auth.existingSecret }}
+            - name: RAFTKV_ADMIN_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.auth.existingSecret }}
+                  key: admin-token
+            - name: RAFTKV_CLIENT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.auth.existingSecret }}
+                  key: client-token
+            {{- end }}
           ports:
             - name: raft
               containerPort: {{ .Values.service.raftPort }}
@@ -29,24 +83,54 @@ spec:
               containerPort: {{ .Values.service.clientPort }}
             - name: metrics
               containerPort: {{ .Values.service.metricsPort }}
+            - name: admin
+              containerPort: {{ .Values.service.adminPort }}
+          startupProbe:
+            httpGet:
+              path: /health/live
+              port: metrics
+            failureThreshold: 30
+            periodSeconds: 2
           readinessProbe:
-            tcpSocket:
-              port: client
+            httpGet:
+              path: /health/ready
+              port: metrics
             initialDelaySeconds: 5
             periodSeconds: 5
           livenessProbe:
-            tcpSocket:
-              port: client
+            httpGet:
+              path: /health/live
+              port: metrics
             initialDelaySeconds: 30
             periodSeconds: 10
           volumeMounts:
+            - name: tmp
+              mountPath: /tmp
             - name: data
               mountPath: /data
             - name: config
               mountPath: /etc/raftkv
+            {{- if .Values.tls.existingSecret }}
+            - name: tls
+              mountPath: /etc/raftkv/tls
+              readOnly: true
+            {{- end }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
       volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 512Mi
+        {{- if not .Values.persistence.enabled }}
+        - name: data
+          emptyDir: {}
+        {{- end }}
+        {{- if .Values.tls.existingSecret }}
+        - name: tls
+          secret:
+            secretName: {{ .Values.tls.existingSecret }}
+            defaultMode: 0440
+        {{- end }}
         - name: config
           configMap:
             name: {{ include "raftkv.fullname" . }}-config

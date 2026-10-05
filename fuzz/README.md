@@ -1,0 +1,1 @@
+Run `cargo +nightly fuzz run <target> -- -max_total_time=30`. Each target bounds hostile inputs. Storage accepts a valid prefix or a clean error. Preserve crashing inputs and failing simulator seeds in CI artifacts.

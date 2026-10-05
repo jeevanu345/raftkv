@@ -1,110 +1,68 @@
-# Architecture
+# Architecture and durability contract
 
-## Layering
+## Pure consensus boundary
 
-```
-┌──────────────────────────────────────────────┐
-│ raftkv-server (binary)                       │
-│  ┌────────────────────────────────────────┐  │
-│  │ runtime.rs                             │  │
-│  │ - drives raft-core                     │  │
-│  │ - executes Action enum                 │  │
-│  │ - wires net + storage + state machine  │  │
-│  └────────────────────────────────────────┘  │
-│        ▲              ▲             ▲        │
-│        │              │             │        │
-│  ┌──────────┐  ┌─────────────┐  ┌──────────┐ │
-│  │ raft-net │  │ raft-storage│  │ resp-srv │ │
-│  │ (tonic)  │  │ (segmented  │  │ (RESP2/3)│ │
-│  │          │  │  log + sled)│  │          │ │
-│  └──────────┘  └─────────────┘  └──────────┘ │
-│                       ▲                      │
-│                       │                      │
-│                ┌──────────────┐              │
-│                │  raft-core   │   (PURE)     │
-│                │ (no I/O,     │              │
-│                │  no async,   │              │
-│                │  no clock)   │              │
-│                └──────────────┘              │
-└──────────────────────────────────────────────┘
+`raft-core` contains deterministic timers, seeded randomness, protocol transitions, a Raft log abstraction, configuration state and replication progress. It has no disk/network/async/wall-clock access. Ticks and messages emit explicit actions. Browser code lives under `ui/dashboard/` and observes typed HTTP/SSE contracts. The lab runs in a separate executable with a simulator, not the live runtime.
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant Runtime
+    participant Core
+    participant Storage
+    participant Peers
+    Client->>Runtime: SET
+    Runtime->>Core: propose replicated timestamp + command
+    Core-->>Runtime: append / persist / send actions
+    Runtime->>Storage: write and fsync
+    Runtime->>Peers: append on bounded persistent streams
+    Peers-->>Runtime: acknowledgement after durable execution
+    Runtime->>Core: matching response
+    Core-->>Runtime: advance commit / apply actions
+    Runtime->>Storage: transactional KV + TTL + hash + applied index / flush
+    Runtime-->>Client: result + exact proposal receipt
 ```
 
-The PURE-IMPURE split is the central design decision. `raft-core` consumes
-`Message`s and produces `Action`s. The runtime is responsible for:
+## Serialized action execution
 
-- Persisting `HardState` and the log before any RPC reply that depends on
-  them (Raft §5.2 durability invariant).
-- Sending messages to peers via `raft-net`.
-- Applying committed entries to the state machine.
-- Driving the tick clock.
+A single runtime gate covers every core step and its complete durable action list, including gRPC request processing. The same executor returns synchronous peer responses and publishes events. It never awaits under that gate. Storage failure fences the runtime, cancels client waiters and prevents acknowledgements; restart must reconcile durable state. Synchronous fsync costs can delay other requests and heartbeat processing; conservative durability is intentional and measured by benchmarks.
 
-This split means `raft-core` is reproducible from a single PRNG seed: feed
-the same sequence of `Message`s and `tick()`s on two builds and they emit
-the same sequence of `Action`s. That is the foundation of `sim-tests`.
+Proposal/read/inbound queues are 4096/8192/16384. Pending client waiters have five-second deadlines. Outbound work and persistent peer queues are bounded; shedding/retry replaces unbounded memory growth. Periodic heartbeats reset stale data-replication windows after lost acknowledgements. HTTP/RESP connection limits are 512; snapshot receive size is bounded to 256 MiB. Normal proposals are bounded to 1 MiB and AppendEntries batches to approximately 2 MiB.
 
-## Core invariants
+## Commit and linearizable reads
 
-1. **Election Safety** — at most one leader per term (Raft §5.2). Enforced
-   by `voted_for` persistence + the universal term-bump rule in
-   `RaftNode::step`.
-2. **Log Matching** — if two logs contain an entry with the same
-   `(index, term)`, all preceding entries are identical. Enforced by the
-   `prev_log_index/prev_log_term` consistency check in
-   `handle_append_entries`.
-3. **Leader Append-Only** — leaders never overwrite their own log; followers
-   truncate on conflict (`truncate_from`).
-4. **Leader Completeness** — only entries from current term may be
-   committed by counting (Figure 8 caveat). Enforced in
-   `maybe_advance_commit`.
-5. **State Machine Safety** — apply order is `last_applied + 1 .. commit`.
-   Enforced in `flush_apply`.
-6. **Joint Consensus** — config changes traverse `C_old -> C_old,new ->
-   C_new`; commit requires quorum across BOTH sets while joint
-   (`maybe_advance_commit`'s joint branch).
+A stable voter set commits the index supported by `n/2+1` voters; absent peer progress contributes zero. Joint consensus requires both old and new majorities. Only current-term entries advance commit directly. ReadIndex requires a committed current-term entry, a uniquely correlated request round and same-term voter acknowledgements satisfying the current configuration. Runtime reads execute only after durable state-machine application reaches that confirmed index. Demotion/timeout cancels pending rounds. No follower read fallback exists.
 
-## Linearizable reads
+The read context retry map retains up to 16 request IDs per peer/round. Very slow or overloaded peers can therefore cause availability failures; they do not authorize stale successful reads. Readiness is based on recent current-term leader/quorum contact, not merely process liveness.
 
-Read-index (Ongaro thesis §6.4): leader records its current commit index,
-broadcasts a heartbeat, waits for quorum to confirm leadership, then waits
-until `applied_index >= commit_index_at_issuance` before serving the read
-from the local state machine. Implemented in `runtime.rs::handle_read` +
-`drain_ready_reads`.
+## Atomic state machine and replicated time
 
-## Pre-vote
+Each log command transaction updates KV, ordered expiry index, per-key expiry index, rolling history hash and applied index together, followed by a durable sled flush. Noop/configuration entries advance the apply pointer without applying a command. Replayed indices are ignored; index gaps fail. INCR rejects invalid numbers and overflow.
 
-Enabled by default (`pre_vote = true` in `ServerConfig`). A server about to
-start an election first issues `RequestVote { pre_vote: true }`; this does
-not bump terms. Only on receiving a quorum of pre-vote grants does the
-server advance to a real candidacy. This prevents disruptive elections from
-isolated/recovered nodes (Ongaro thesis §9.6).
+Leader timestamps are monotonic and embedded in replicated commands; a one-second replicated Tick expires idle keys. State mutations expire keys at the command's logical time before applying. Reads do not compare follower wall clocks. SET/MSET clear old TTLs; EXPIRE replaces them; PERSIST removes them; TTL/PTTL derive remaining time from committed logical time. A legacy per-key migration keeps the latest expiry for each key.
 
-## Leadership transfer
+The exposed state hash is a rolling command-history hash, not a standalone cryptographic digest of sorted key/value contents. Snapshot integrity uses separate SHA-256 checksums.
 
-`RaftNode::transfer_leadership(target)` marks the target, blocks new
-proposals, sends `TimeoutNow` once the target's `match_index` equals the
-leader's `last_log_index`. The target promptly starts a new election in
-the next term and wins (it is already up-to-date).
+## Checkpoints, install and recovery
 
-## Storage
+A checkpoint packages format version, included index/term, the configuration at that applied index, logical time, history hash, KV entries and TTL metadata. The logical state has its own checksum; the published file checksum also covers serialized membership metadata. Temporary data/metadata/checksum files are fsynced, then published with the data rename last and parent-directory fsync. A published identity cannot be replaced with different contents through independent renames. Unpublished temporary files are ignored. Retention keeps three published checkpoints.
 
-- **Segmented log** (`raft-storage::SegmentedLog`): files of the form
-  `<base_index>.log`, each record framed as
-  `[u32 length][u32 crc32c][payload]`. Torn writes at the tail are detected
-  on open and truncated.
-- **Snapshots** (`SnapshotStore`): write-to-temp + atomic `rename` install.
-  Old snapshots are pruned with `keep_last(N)`.
-- **MetaStore**: sled-backed `(currentTerm, votedFor, commitIndex)` plus
-  the snapshot pointer.
+Snapshot transfer uses 64 KiB streamed chunks, offsets, metadata consistency, CRC32C and an explicit final marker. A receiver spools to a temporary file and syncs it, then assembles the bounded package for the pure core. Installation validates the complete state/configuration, writes the checkpoint, restores/flushes state, advances durable pointers and hard state, repairs/compacts the local log, and only then acknowledges. The durable checkpoint allows recovery across intermediate install steps.
 
-## Design Decisions / Deviations from spec
+Startup verifies the snapshot checksum and reconciles `snapshot <= applied <= commit <= last_log`, including snapshot boundaries. The volatile apply pointer starts from the durable state-machine index, not the snapshot boundary. Committed unapplied entries replay before serving traffic. Torn log tails recover a valid CRC-checked prefix; noncontiguous records and unavailable committed history fail startup. Corrupt pointer lengths fail cleanly.
 
-- **sled instead of RocksDB** for the state machine. Both are LSM-based with
-  WAL durability; sled avoids the heavy RocksDB toolchain dependency.
-  Swapping is a trait-bounded change — see `kv-state-machine/src/lib.rs`.
-- **Sync gRPC ack model**: gRPC handlers ack synchronously and the
-  semantically real `AppendEntriesResponse` / `RequestVoteResponse` flow
-  back over the *outbound* peer client. This simplifies the message plumbing
-  at the cost of two extra round-trip hops; for production we'd switch to
-  streaming RPCs to fold response bodies into the request RPC.
-- **Linearizability checker is in-process** — short traces only. For full
-  Jepsen-scale validation, hand histories to Knossos or Porcupine.
+## Membership and transport
+
+Replicated member metadata carries peer, RESP and HTTP endpoints plus optional certificate fingerprints. Learners replicate without voting; promotion requires catch-up. Voting changes use joint consensus and final configuration entries. Runtime peer clients follow configuration changes; removed peers are pruned and not reintroduced from stale startup TOML. Membership operations are serialized per runtime.
+
+Normal traffic uses persistent bidirectional Envelope streams with bounded queues and reconnect; unary fallback remains. Snapshot traffic uses its dedicated stream. mTLS verifies cluster trust and binds a sender's claimed node ID to its registered DER-certificate fingerprint. This is a non-Byzantine Raft design; arbitrary dishonest behavior by trusted voting members is not tolerated.
+
+## Diagnostics, events and observability
+
+Typed node/peer diagnostics expose actual role/term/indices, addresses, state hash, recent log metadata, replication progress, disk usage and configuration. Raw commands/values are excluded. Failed remote observations return null indices and unavailable state. SSE keeps a 10,000-event ring and 2048-event broadcast capacity, resumes by Last-Event-ID, and emits a gap event on lag. The frontend deduplicates and keeps 250 visible events.
+
+Prometheus owns runtime counters/gauges/histograms for roles/indices/elections/requests/errors/messages/snapshots/log bytes/lag and actual file fsync/metadata flush durations. Dashboard rates derive successive observed counters; chart samples are bounded to 60. Histogram percentiles are bucket estimates. Detailed history belongs in Prometheus/Grafana.
+
+## Verification model
+
+The simulator persists modeled hard state/log/applied state/checkpoints separately from volatile nodes, supports replay and checks election safety, leader completeness, log matching, committed entry immutability, state-machine safety and index monotonicity every step. Storage faults model durable action cut points and complete-record prefixes, not real kernel/fsync failures. Real storage tests cover torn bytes and interrupted checkpoint publication. External TCP proxies partition/delay real peer streams without adding live fault controls to the server. Short completed-operation histories are checked exhaustively; uncertain outcomes are not claimed as verified histories.

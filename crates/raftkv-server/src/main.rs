@@ -6,18 +6,22 @@
 //!  * RESP client server (resp-server)
 //!  * Prometheus metrics endpoint
 //!
-//! On SIGINT/SIGTERM we cancel the listeners and let the runtime drain.
+//! On SIGINT/SIGTERM listeners are cancelled. Completed actions are durable;
+//! outstanding requests may fail and must be retried after leader discovery.
 
 #![deny(unsafe_code)]
 
-use serde_json::json;
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use clap::Parser;
 use tracing_subscriber::EnvFilter;
 
+mod admin;
 mod config;
+mod control;
+mod diagnostics;
+mod metrics;
 mod runtime;
 
 use config::ServerConfig;
@@ -58,6 +62,15 @@ async fn main() -> anyhow::Result<()> {
         Some(p) => ServerConfig::from_toml_file(&p)?,
         None => ServerConfig::default(),
     };
+    if let Ok(pod) = std::env::var("RAFTKV_POD_NAME") {
+        cfg.id = pod
+            .rsplit('-')
+            .next()
+            .ok_or_else(|| anyhow::anyhow!("invalid pod name"))?
+            .parse::<u64>()?
+            .checked_add(1)
+            .ok_or_else(|| anyhow::anyhow!("pod ordinal overflow"))?;
+    }
     if let Some(v) = cli.id {
         cfg.id = v;
     }
@@ -77,6 +90,48 @@ async fn main() -> anyhow::Result<()> {
         cfg.data_dir = v;
     }
 
+    if let Ok(token) = std::env::var("RAFTKV_ADMIN_TOKEN") {
+        cfg.admin_token = Some(token);
+    }
+    if let Ok(token) = std::env::var("RAFTKV_CLIENT_TOKEN") {
+        cfg.client_token = Some(token);
+    }
+    for tls in [&mut cfg.peer_tls, &mut cfg.client_tls, &mut cfg.admin_tls]
+        .into_iter()
+        .flatten()
+    {
+        tls.cert = PathBuf::from(
+            tls.cert
+                .to_string_lossy()
+                .replace("{id}", &cfg.id.to_string()),
+        );
+        tls.key = PathBuf::from(
+            tls.key
+                .to_string_lossy()
+                .replace("{id}", &cfg.id.to_string()),
+        );
+    }
+    anyhow::ensure!(
+        cfg.tick_ms > 0
+            && cfg.heartbeat_ms >= cfg.tick_ms
+            && cfg.election_timeout_ms > cfg.heartbeat_ms,
+        "invalid Raft timing configuration"
+    );
+    anyhow::ensure!(
+        cfg.id > 0 && cfg.peers.iter().any(|p| p.id == cfg.id),
+        "local node must be present in bootstrap peers"
+    );
+    let ids: std::collections::BTreeSet<_> = cfg.peers.iter().map(|p| p.id).collect();
+    anyhow::ensure!(ids.len() == cfg.peers.len(), "duplicate bootstrap peer id");
+    for peer in &mut cfg.peers {
+        if let Some(hash) = &mut peer.certificate_sha256 {
+            hash.make_ascii_lowercase();
+            anyhow::ensure!(
+                hash.len() == 64 && hex::decode(hash.as_str()).is_ok(),
+                "invalid peer certificate fingerprint"
+            );
+        }
+    }
     tracing::info!(node = cfg.id, raft = %cfg.raft_listen, client = %cfg.client_listen, "starting raftkv-server");
 
     let raft_addr: std::net::SocketAddr = strip_scheme(&cfg.raft_listen).parse()?;
@@ -84,18 +139,67 @@ async fn main() -> anyhow::Result<()> {
     let metrics_addr: std::net::SocketAddr = strip_scheme(&cfg.metrics_listen).parse()?;
     let ui_addr: std::net::SocketAddr = strip_scheme(&cfg.ui_listen).parse()?;
 
+    let client_tls = cfg.client_tls.as_ref().map(tls_acceptor).transpose()?;
+    let admin_tls = cfg.admin_tls.as_ref().map(tls_acceptor).transpose()?;
+    let client_users = cfg.client_users.clone();
+    let mut grpc_builder = tonic::transport::Server::builder();
+    if let Some(tls) = &cfg.peer_tls {
+        grpc_builder = grpc_builder.tls_config(
+            tonic::transport::ServerTlsConfig::new()
+                .identity(tonic::transport::Identity::from_pem(
+                    std::fs::read(&tls.cert)?,
+                    std::fs::read(&tls.key)?,
+                ))
+                .client_ca_root(tonic::transport::Certificate::from_pem(std::fs::read(
+                    &tls.ca,
+                )?)),
+        )?;
+    }
+    // Bind every listener before starting the runtime; a missing/occupied port
+    // must fail startup rather than leave a partially serving database.
+    let grpc_listener = tokio::net::TcpListener::bind(raft_addr).await?;
+    let resp_listener = tokio::net::TcpListener::bind(&client_addr).await?;
+    let metrics_listener = tokio::net::TcpListener::bind(metrics_addr).await?;
+    let ui_listener = tokio::net::TcpListener::bind(ui_addr).await?;
+    let peer_tls = cfg.peer_tls.clone();
+    let peer_certificates = cfg
+        .peers
+        .iter()
+        .filter_map(|p| p.certificate_sha256.clone().map(|hash| (p.id, hash)))
+        .collect::<std::collections::BTreeMap<_, _>>();
+    if peer_tls.is_some() {
+        anyhow::ensure!(
+            peer_certificates.len() == cfg.peers.len(),
+            "every mTLS peer needs certificate_sha256"
+        );
+    }
     let (rt, handles) = Runtime::new(cfg).await?;
     let local_id = rt.local_id();
 
     rt.clone().spawn(handles);
 
     let processor: Arc<dyn raft_net::MessageProcessor> = rt.clone();
-    let raft_server = raft_net::server::RaftServer::new(local_id, processor);
+    let mut raft_server = raft_net::server::RaftServer::new(local_id, processor);
+    if peer_tls.is_some() {
+        raft_server = raft_server.with_peer_certificates(peer_certificates);
+    }
+    let admin_service = admin::Services(rt.clone());
+    let membership_service = admin::Services(rt.clone());
     let raft_grpc = tokio::spawn(async move {
         let svc = raft_net::pb::raft::raft_server::RaftServer::new(raft_server);
-        if let Err(e) = tonic::transport::Server::builder()
+        if let Err(e) = grpc_builder
             .add_service(svc)
-            .serve(raft_addr)
+            .add_service(raft_net::pb::admin::admin_server::AdminServer::new(
+                admin_service,
+            ))
+            .add_service(
+                raft_net::pb::membership::membership_server::MembershipServer::new(
+                    membership_service,
+                ),
+            )
+            .serve_with_incoming(tokio_stream::wrappers::TcpListenerStream::new(
+                grpc_listener,
+            ))
             .await
         {
             tracing::error!(error = %e, "gRPC server exited");
@@ -104,24 +208,56 @@ async fn main() -> anyhow::Result<()> {
 
     let handler: Arc<ClientHandler> = Arc::new(ClientHandler::new(rt.clone()));
     let client_handler = handler.clone();
+    let rt_client_token = rt.cfg.client_token.clone();
     let resp_task = tokio::spawn(async move {
-        if let Err(e) = resp_server::server::serve(&client_addr, client_handler).await {
-            tracing::error!(error = %e, "RESP server exited");
+        let limit = Arc::new(tokio::sync::Semaphore::new(512));
+        loop {
+            let Ok((socket, _)) = resp_listener.accept().await else {
+                continue;
+            };
+            let Ok(permit) = limit.clone().try_acquire_owned() else {
+                continue;
+            };
+            let tls = client_tls.clone();
+            let handler = client_handler.clone();
+            let token = rt_client_token.clone();
+            let users = client_users.clone();
+            tokio::spawn(async move {
+                let _permit = permit;
+                if let Some(tls) = tls {
+                    if let Ok(Ok(stream)) =
+                        tokio::time::timeout(std::time::Duration::from_secs(5), tls.accept(socket))
+                            .await
+                    {
+                        resp_server::server::serve_connection(stream, handler, token, users).await;
+                    }
+                } else {
+                    resp_server::server::serve_connection(socket, handler, token, users).await;
+                }
+            });
         }
     });
 
+    let metrics_rt = rt.clone();
     let metrics_task = tokio::spawn(async move {
-        if let Err(e) = serve_metrics(metrics_addr).await {
+        if let Err(e) = axum::serve(metrics_listener, control::metrics_router(metrics_rt)).await {
             tracing::warn!(error = %e, "metrics server exited");
         }
     });
-    let ui_handler = handler.clone();
+    let ui_runtime = rt.clone();
     let ui_task = tokio::spawn(async move {
-        if let Err(e) = serve_ui(ui_addr, ui_handler).await {
+        if let Err(e) = serve_control(ui_listener, ui_runtime, admin_tls).await {
             tracing::warn!(error = %e, "dashboard API exited");
         }
     });
 
+    #[cfg(unix)]
+    {
+        let mut terminate =
+            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
+        tokio::select! {_ =tokio::signal::ctrl_c()=>{},_=terminate.recv()=>{}}
+    }
+    #[cfg(not(unix))]
     tokio::signal::ctrl_c().await.ok();
     tracing::info!("shutdown signal received");
     raft_grpc.abort();
@@ -131,53 +267,66 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Local-only JSON API for the Vite dashboard.
-async fn serve_ui(addr: std::net::SocketAddr, handler: Arc<ClientHandler>) -> std::io::Result<()> {
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
-    use tokio::net::TcpListener;
-    let listener = TcpListener::bind(addr).await?;
-    tracing::info!(%addr, "dashboard API listening");
-    loop {
-        let (mut sock, _) = listener.accept().await?;
-        let handler = handler.clone();
-        tokio::spawn(async move {
-            let mut buf = vec![0u8; 128 * 1024];
-            let n = match sock.read(&mut buf).await {
-                Ok(n) => n,
-                Err(_) => return,
+fn tls_acceptor(config: &config::TlsConfig) -> anyhow::Result<tokio_rustls::TlsAcceptor> {
+    use std::io::BufReader;
+    let certificates =
+        rustls_pemfile::certs(&mut BufReader::new(std::fs::File::open(&config.cert)?))
+            .collect::<Result<Vec<_>, _>>()?;
+    let key = rustls_pemfile::private_key(&mut BufReader::new(std::fs::File::open(&config.key)?))?
+        .ok_or_else(|| anyhow::anyhow!("TLS private key missing"))?;
+    let mut tls = tokio_rustls::rustls::ServerConfig::builder()
+        .with_no_client_auth()
+        .with_single_cert(certificates, key)?;
+    tls.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
+    Ok(tokio_rustls::TlsAcceptor::from(Arc::new(tls)))
+}
+async fn serve_control(
+    listener: tokio::net::TcpListener,
+    rt: Arc<Runtime>,
+    tls: Option<tokio_rustls::TlsAcceptor>,
+) -> std::io::Result<()> {
+    let router = control::router(rt);
+    if let Some(tls) = tls {
+        let limit = Arc::new(tokio::sync::Semaphore::new(512));
+        loop {
+            let (socket, _) = listener.accept().await?;
+            let Ok(permit) = limit.clone().try_acquire_owned() else {
+                continue;
             };
-            let request = String::from_utf8_lossy(&buf[..n]);
-            let mut parts = request
-                .lines()
-                .next()
-                .unwrap_or_default()
-                .split_whitespace();
-            let method = parts.next().unwrap_or_default();
-            let path = parts.next().unwrap_or_default();
-            let body = request.split("\r\n\r\n").nth(1).unwrap_or_default();
-            let result = match (method, path) {
-                ("GET", "/api/status") => Ok(handler.status_json()),
-                ("GET", "/api/keys") => handler.keys_json().await,
-                ("GET", p) if p.starts_with("/api/keys/") => handler.get_json(&p[10..]).await,
-                ("PUT", p) if p.starts_with("/api/keys/") => handler.set_json(&p[10..], body).await,
-                ("DELETE", p) if p.starts_with("/api/keys/") => handler.delete_json(&p[10..]).await,
-                ("OPTIONS", _) => Ok(json!({"ok": true})),
-                _ => Err((404, "not found".to_string())),
-            };
-            let (status, payload) = match result {
-                Ok(value) => (200, value),
-                Err((status, message)) => (status, json!({"error": message})),
-            };
-            let encoded = payload.to_string();
-            let response = format!("HTTP/1.1 {} OK\r\nContent-Type: application/json\r\nAccess-Control-Allow-Origin: http://127.0.0.1:5173\r\nAccess-Control-Allow-Methods: GET, PUT, DELETE, OPTIONS\r\nAccess-Control-Allow-Headers: content-type\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", status, encoded.len(), encoded);
-            let _ = sock.write_all(response.as_bytes()).await;
-        });
+            let tls = tls.clone();
+            let router = router.clone();
+            tokio::spawn(async move {
+                let _permit = permit;
+                if let Ok(Ok(stream)) =
+                    tokio::time::timeout(std::time::Duration::from_secs(5), tls.accept(socket))
+                        .await
+                {
+                    let io = hyper_util::rt::TokioIo::new(stream);
+                    let service = hyper_util::service::TowerToHyperService::new(router);
+                    let _ = hyper_util::server::conn::auto::Builder::new(
+                        hyper_util::rt::TokioExecutor::new(),
+                    )
+                    .serve_connection_with_upgrades(io, service)
+                    .await;
+                }
+            });
+        }
+    } else {
+        axum::serve(listener, router).await
     }
 }
 
 fn init_tracing() {
     let filter =
         EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info,raftkv=info"));
+    let json = std::env::var("RAFTKV_LOG_FORMAT").is_ok_and(|v| v == "json");
+    if json {
+        tracing_subscriber::fmt()
+            .with_env_filter(filter)
+            .json()
+            .init();
+        return;
+    }
     tracing_subscriber::fmt()
         .with_env_filter(filter)
         .with_target(true)
@@ -189,28 +338,4 @@ fn strip_scheme(s: &str) -> &str {
     s.strip_prefix("http://")
         .or_else(|| s.strip_prefix("https://"))
         .unwrap_or(s)
-}
-
-/// Minimal Prometheus text-format endpoint over plain TCP.
-async fn serve_metrics(addr: std::net::SocketAddr) -> std::io::Result<()> {
-    use tokio::io::AsyncWriteExt;
-    use tokio::net::TcpListener;
-    let listener = TcpListener::bind(addr).await?;
-    tracing::info!(%addr, "metrics endpoint listening");
-    loop {
-        let (mut sock, _) = listener.accept().await?;
-        tokio::spawn(async move {
-            let body = match prometheus::TextEncoder::new().encode_to_string(&prometheus::gather())
-            {
-                Ok(s) => s,
-                Err(_) => String::new(),
-            };
-            let resp = format!(
-                "HTTP/1.1 200 OK\r\nContent-Type: text/plain; version=0.0.4\r\nContent-Length: {}\r\n\r\n{}",
-                body.len(), body
-            );
-            let _ = sock.write_all(resp.as_bytes()).await;
-            let _ = sock.shutdown().await;
-        });
-    }
 }

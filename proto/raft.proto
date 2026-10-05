@@ -6,6 +6,7 @@ package raftkv.raft.v1;
 // preserves stable field numbering for cross-version compatibility.
 
 service Raft {
+  rpc RaftStream(stream Envelope) returns (stream Envelope);
   rpc AppendEntries (AppendEntriesRequest) returns (AppendEntriesResponse);
   rpc RequestVote   (RequestVoteRequest)   returns (RequestVoteResponse);
   rpc PreVote       (RequestVoteRequest)   returns (RequestVoteResponse);
@@ -25,6 +26,8 @@ enum EntryType {
   ENTRY_TYPE_NOOP          = 1;
   ENTRY_TYPE_CONFIG_JOINT  = 2;
   ENTRY_TYPE_CONFIG_NEW    = 3;
+  ENTRY_TYPE_MEMBER_METADATA = 4;
+  MEMBER_REMOVED = 5;
 }
 
 message AppendEntriesRequest {
@@ -72,6 +75,7 @@ message InstallSnapshotChunk {
   bool   done = 7;
   bytes  config = 8;
   bytes  request_id = 9;
+  uint32 checksum = 10;
 }
 
 message InstallSnapshotResponse {
@@ -86,4 +90,16 @@ message TimeoutNowRequest {
 
 message TimeoutNowResponse {
   bool accepted = 1;
+}
+
+message Envelope {
+  uint64 node_id = 1;
+  bool pre_vote = 7;
+  oneof body {
+    AppendEntriesRequest append = 2;
+    AppendEntriesResponse append_response = 3;
+    RequestVoteRequest vote = 4;
+    RequestVoteResponse vote_response = 5;
+    TimeoutNowRequest timeout = 6;
+  }
 }

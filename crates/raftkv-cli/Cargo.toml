@@ -15,3 +15,14 @@ clap = { workspace = true }
 anyhow = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
+reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+raft-storage = { version = "0.1.0", path = "../raft-storage" }
+raft-core = { version = "0.1.0", path = "../raft-core" }
+kv-state-machine = { version = "0.1.0", path = "../kv-state-machine" }
+serde_json = { workspace = true }
+bincode = { workspace = true }
+hex = { workspace = true }
+
+resp-server = { version = "0.1.0", path = "../resp-server" }
+bytes = { workspace = true }
+tokio-util = { workspace = true }

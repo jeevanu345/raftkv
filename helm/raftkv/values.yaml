@@ -9,6 +9,7 @@ service:
   raftPort: 7001
   clientPort: 6379
   metricsPort: 9100
+  adminPort: 8080
 
 persistence:
   enabled: true
@@ -32,8 +33,19 @@ raft:
 
 podDisruptionBudget:
   enabled: true
-  minAvailable: 2
+  minAvailable: null # Defaults to the replica majority.
 
 serviceMonitor:
   enabled: false
   interval: 15s
+
+# Tokens are never rendered in ConfigMaps.
+auth:
+  existingSecret: ""
+tls:
+  existingSecret: ""
+  peerCertificates: {}
+networkPolicy:
+  enabled: true
+grafanaDashboard:
+  enabled: false

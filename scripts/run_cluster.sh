@@ -1,87 +1,43 @@
 #!/usr/bin/env bash
-# Spin up a 3-node raftkv cluster on localhost in the background.
-# Logs go to ./.run/nodeN.log; data to ./.run/data/nodeN.
+# Local development only. Durable data and PID files stay in .runtime/.
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
-RUN_DIR="$ROOT/.run"
-mkdir -p "$RUN_DIR/data/node1" "$RUN_DIR/data/node2" "$RUN_DIR/data/node3"
-
-cargo build -p raftkv-server --release
-
-cat > "$RUN_DIR/node1.toml" <<EOF
-id = 1
-raft_listen   = "127.0.0.1:7001"
-client_listen = "127.0.0.1:6379"
-metrics_listen = "127.0.0.1:9101"
-ui_listen = "127.0.0.1:8080"
-data_dir = "$RUN_DIR/data/node1"
+RUN_DIR="$ROOT/.runtime"
+mkdir -p "$RUN_DIR"
+cd "$ROOT"
+cargo build -p raftkv-server -p raftkv-cli --release --locked
+for node in 1 2 3; do
+  if [[ -f "$RUN_DIR/node$node.pid" ]] && kill -0 "$(cat "$RUN_DIR/node$node.pid")" 2>/dev/null; then
+    echo "node$node is already running; stop the cluster first" >&2
+    exit 1
+  fi
+done
+for node in 1 2 3; do
+  cat > "$RUN_DIR/node$node.toml" <<EOF
+id = $node
+raft_listen = "127.0.0.1:$((7000+node))"
+client_listen = "127.0.0.1:$((6378+node))"
+metrics_listen = "127.0.0.1:$((9100+node))"
+ui_listen = "127.0.0.1:$((8079+node))"
+data_dir = "$RUN_DIR/data/node$node"
 election_timeout_ms = 300
 heartbeat_ms = 50
 tick_ms = 10
 snapshot_entries_threshold = 10000
 pre_vote = true
-[[peers]]
-id = 1
-raft_addr = "http://127.0.0.1:7001"
-[[peers]]
-id = 2
-raft_addr = "http://127.0.0.1:7002"
-[[peers]]
-id = 3
-raft_addr = "http://127.0.0.1:7003"
 EOF
-cat > "$RUN_DIR/node2.toml" <<EOF
-id = 2
-raft_listen   = "127.0.0.1:7002"
-client_listen = "127.0.0.1:6380"
-metrics_listen = "127.0.0.1:9102"
-ui_listen = "127.0.0.1:8081"
-data_dir = "$RUN_DIR/data/node2"
-election_timeout_ms = 300
-heartbeat_ms = 50
-tick_ms = 10
-snapshot_entries_threshold = 10000
-pre_vote = true
+  for peer in 1 2 3; do
+    cat >> "$RUN_DIR/node$node.toml" <<EOF
 [[peers]]
-id = 1
-raft_addr = "http://127.0.0.1:7001"
-[[peers]]
-id = 2
-raft_addr = "http://127.0.0.1:7002"
-[[peers]]
-id = 3
-raft_addr = "http://127.0.0.1:7003"
+id = $peer
+raft_addr = "http://127.0.0.1:$((7000+peer))"
+client_addr = "127.0.0.1:$((6378+peer))"
+admin_addr = "http://127.0.0.1:$((8079+peer))"
 EOF
-
-cat > "$RUN_DIR/node3.toml" <<EOF
-id = 3
-raft_listen   = "127.0.0.1:7003"
-client_listen = "127.0.0.1:6381"
-metrics_listen = "127.0.0.1:9103"
-ui_listen = "127.0.0.1:8082"
-data_dir = "$RUN_DIR/data/node3"
-election_timeout_ms = 300
-heartbeat_ms = 50
-tick_ms = 10
-snapshot_entries_threshold = 10000
-pre_vote = true
-[[peers]]
-id = 1
-raft_addr = "http://127.0.0.1:7001"
-[[peers]]
-id = 2
-raft_addr = "http://127.0.0.1:7002"
-[[peers]]
-id = 3
-raft_addr = "http://127.0.0.1:7003"
-EOF
-
-BIN="$ROOT/target/release/raftkv-server"
-RUST_LOG=${RUST_LOG:-info,raftkv=info} "$BIN" --config "$RUN_DIR/node1.toml" >"$RUN_DIR/node1.log" 2>&1 &
-echo "node1 pid $!"
-RUST_LOG=${RUST_LOG:-info,raftkv=info} "$BIN" --config "$RUN_DIR/node2.toml" >"$RUN_DIR/node2.log" 2>&1 &
-echo "node2 pid $!"
-RUST_LOG=${RUST_LOG:-info,raftkv=info} "$BIN" --config "$RUN_DIR/node3.toml" >"$RUN_DIR/node3.log" 2>&1 &
-echo "node3 pid $!"
-echo "logs in $RUN_DIR/nodeN.log"
-echo "use redis-cli -p 6379 (or 6380/6381) to talk to a node"
+  done
+  RUST_LOG=${RUST_LOG:-info} "$ROOT/target/release/raftkv-server" --config "$RUN_DIR/node$node.toml" >"$RUN_DIR/node$node.log" 2>&1 &
+  pid=$!
+  echo "$pid" > "$RUN_DIR/node$node.pid"
+  echo "node$node pid $pid; HTTP $((8079+node)), RESP $((6378+node))"
+done
+echo "Logs and data: $RUN_DIR. Dashboard: cd ui/dashboard && npm ci && npm run dev"

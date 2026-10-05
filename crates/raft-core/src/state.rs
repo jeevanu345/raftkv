@@ -30,6 +30,9 @@ pub struct SoftState {
 
 impl Default for SoftState {
     fn default() -> Self {
-        Self { role: Role::Follower, leader_id: None }
+        Self {
+            role: Role::Follower,
+            leader_id: None,
+        }
     }
 }

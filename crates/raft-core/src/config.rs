@@ -2,7 +2,7 @@
 //!
 //! Implements §6 of the Raft paper and §4 of the Ongaro thesis.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 
@@ -23,7 +23,9 @@ pub enum ConfigState {
 }
 
 impl Default for ConfigState {
-    fn default() -> Self { Self::Stable(BTreeSet::new()) }
+    fn default() -> Self {
+        Self::Stable(BTreeSet::new())
+    }
 }
 
 impl ConfigState {
@@ -44,14 +46,18 @@ impl ConfigState {
     }
 
     /// Quorum size for a stable configuration.
-    fn quorum(set: &BTreeSet<NodeId>) -> usize { set.len() / 2 + 1 }
+    fn quorum(set: &BTreeSet<NodeId>) -> usize {
+        set.len() / 2 + 1
+    }
 
     /// Determine whether `acks` represents a quorum, accounting for joint
     /// configs (which require quorum in BOTH old and new).
     pub fn has_quorum(&self, acks: &BTreeSet<NodeId>) -> bool {
         match self {
             Self::Stable(s) => {
-                if s.is_empty() { return false; }
+                if s.is_empty() {
+                    return false;
+                }
                 let need = Self::quorum(s);
                 s.iter().filter(|id| acks.contains(id)).count() >= need
             }
@@ -72,12 +78,17 @@ impl ConfigState {
 pub struct ClusterConfig {
     /// Currently active config state.
     pub state: ConfigState,
+    /// Replicated advertised endpoints and learner metadata.
+    pub members: BTreeMap<NodeId, Member>,
 }
 
 impl ClusterConfig {
     /// Construct a stable config from a list of voters.
     pub fn stable<I: IntoIterator<Item = NodeId>>(voters: I) -> Self {
-        Self { state: ConfigState::Stable(voters.into_iter().collect()) }
+        Self {
+            state: ConfigState::Stable(voters.into_iter().collect()),
+            members: BTreeMap::new(),
+        }
     }
 }
 
@@ -94,7 +105,9 @@ pub enum ConfigChange {
 mod tests {
     use super::*;
 
-    fn set(ids: &[NodeId]) -> BTreeSet<NodeId> { ids.iter().copied().collect() }
+    fn set(ids: &[NodeId]) -> BTreeSet<NodeId> {
+        ids.iter().copied().collect()
+    }
 
     #[test]
     fn quorum_stable() {
@@ -106,10 +119,30 @@ mod tests {
 
     #[test]
     fn quorum_joint_requires_both() {
-        let cfg = ConfigState::Joint { old: set(&[1, 2, 3]), new: set(&[3, 4, 5]) };
+        let cfg = ConfigState::Joint {
+            old: set(&[1, 2, 3]),
+            new: set(&[3, 4, 5]),
+        };
         // Quorum in old (1,2) but not new (only 3)
         assert!(!cfg.has_quorum(&set(&[1, 2, 3])));
         // Quorum in both
         assert!(cfg.has_quorum(&set(&[1, 2, 3, 4])));
     }
+}
+
+/// A replicated member record. Addresses are advertised endpoints, not bind addresses.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Member {
+    /// Cluster-unique id.
+    pub id: NodeId,
+    /// Peer endpoint URL.
+    pub raft_addr: String,
+    /// RESP client endpoint.
+    pub client_addr: String,
+    /// HTTP admin endpoint URL.
+    pub admin_addr: String,
+    /// Learners replicate without voting.
+    pub learner: bool,
+    /// SHA256 of DER peer certificate for ID-bound mTLS.
+    pub certificate_sha256: Option<String>,
 }

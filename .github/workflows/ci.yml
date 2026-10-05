@@ -1,0 +1,94 @@
+name: RaftKV verification
+on:
+  push:
+  pull_request:
+  schedule:
+    - cron: '30 2 * * *'
+jobs:
+  rust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt,clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --workspace --all-targets --locked -- -D clippy::correctness -D clippy::suspicious
+      - run: cargo test --workspace --locked
+      - run: cargo test -p sim-tests seed_sweep --locked
+        env:
+          RAFTKV_SIM_SEEDS: ${{ github.event_name == 'schedule' && '1000' || '100' }}
+      - run: cargo build --workspace --locked
+      - run: python3 scripts/integration_cluster.py
+      - run: python3 scripts/integration_cluster.py --nodes 5 --peer-tls
+      - run: python3 scripts/chaos_cluster.py
+      - run: python3 scripts/chaos_cluster.py --nodes 5
+      - run: python3 scripts/integration_membership.py
+      - run: python3 scripts/test_lab.py
+      - run: python3 scripts/integration_security.py
+  dashboard:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ui/dashboard
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: ui/dashboard/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck && npm run build
+      - run: npx playwright install --with-deps chromium
+      - run: npm test
+      - run: npm test
+        env:
+          RAFTKV_UI_TEST_MODE: live
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: dashboard-test-results
+          path: ui/dashboard/test-results
+  dependencies:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit,cargo-deny
+      - run: cargo audit
+      - run: cargo deny check
+  fuzz:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        target: [resp_decoder,command_parser,raft_conversion,log_recovery,snapshot_decoder,bincode_command,raft_sequences]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-fuzz
+      - run: cargo fuzz run ${{ matrix.target }} -- -max_total_time=15
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: fuzz-${{ matrix.target }}
+          path: fuzz/artifacts
+  packaging:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4.3.0
+      - run: helm lint helm/raftkv
+      - run: helm template check helm/raftkv --set persistence.enabled=false --set serviceMonitor.enabled=true --set grafanaDashboard.enabled=true > /tmp/chart.yaml
+      - run: docker build -t raftkv:ci .
+  miri:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@miri
+      - run: cargo miri test -p linearizability-checker

@@ -70,7 +70,9 @@ impl Progress {
         let updated = if last_log_index_on_peer > self.match_index {
             self.match_index = last_log_index_on_peer;
             true
-        } else { false };
+        } else {
+            false
+        };
         if last_log_index_on_peer + 1 > self.next_index {
             self.next_index = last_log_index_on_peer + 1;
         }
@@ -130,18 +132,26 @@ impl ProgressSet {
     /// Insert or refresh entries for a list of voters.
     pub fn ensure(&mut self, ids: &[NodeId], last_log_index: LogIndex) {
         for &id in ids {
-            self.peers.entry(id).or_insert_with(|| Progress::new(last_log_index));
+            self.peers
+                .entry(id)
+                .or_insert_with(|| Progress::new(last_log_index));
         }
     }
 
     /// Borrow a peer's progress mutably.
-    pub fn get_mut(&mut self, id: NodeId) -> Option<&mut Progress> { self.peers.get_mut(&id) }
+    pub fn get_mut(&mut self, id: NodeId) -> Option<&mut Progress> {
+        self.peers.get_mut(&id)
+    }
 
     /// Borrow a peer's progress.
-    pub fn get(&self, id: NodeId) -> Option<&Progress> { self.peers.get(&id) }
+    pub fn get(&self, id: NodeId) -> Option<&Progress> {
+        self.peers.get(&id)
+    }
 
     /// Iterate all peers.
-    pub fn iter(&self) -> impl Iterator<Item = (&NodeId, &Progress)> { self.peers.iter() }
+    pub fn iter(&self) -> impl Iterator<Item = (&NodeId, &Progress)> {
+        self.peers.iter()
+    }
 
     /// Drop peers no longer in the cluster.
     pub fn retain_in(&mut self, ids: &[NodeId]) {

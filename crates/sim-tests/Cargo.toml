@@ -9,7 +9,7 @@ description = "Deterministic simulation tests for raftkv (no async; drives raft-
 path = "src/lib.rs"
 
 [dependencies]
-raft-core = { path = "../raft-core" }
+raft-core = { version = "0.1.0", path = "../raft-core" }
 rand = { workspace = true }
 rand_chacha = { workspace = true }
 bincode = { workspace = true }

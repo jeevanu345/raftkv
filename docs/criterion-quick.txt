@@ -1,0 +1,61 @@
+Benchmarking raft_tick
+Benchmarking raft_tick: Analyzing
+raft_tick               time:   [104.05 ns 107.58 ns 108.47 ns]
+                        change: [+94.939% +101.43% +108.08%] (p = 0.10 > 0.05)
+                        No change in performance detected.
+
+Benchmarking raft_step
+Benchmarking raft_step: Analyzing
+raft_step               time:   [115.58 ns 142.19 ns 148.84 ns]
+
+Benchmarking log_serialization
+Benchmarking log_serialization: Analyzing
+log_serialization       time:   [796.89 ns 807.54 ns 810.20 ns]
+                        change: [+153.27% +156.24% +159.23%] (p = 0.10 > 0.05)
+                        No change in performance detected.
+
+Benchmarking crc_framing
+Benchmarking crc_framing: Analyzing
+crc_framing             time:   [79.158 ns 81.980 ns 82.686 ns]
+                        change: [+49.660% +54.970% +60.419%] (p = 0.10 > 0.05)
+                        No change in performance detected.
+
+Benchmarking state_machine_set_durable
+Benchmarking state_machine_set_durable: Analyzing
+state_machine_set_durable
+                        time:   [10.002 ms 10.042 ms 10.205 ms]
+                        change: [+78.585% +85.083% +91.928%] (p = 0.10 > 0.05)
+                        No change in performance detected.
+
+Benchmarking state_machine_get
+Benchmarking state_machine_get: Analyzing
+state_machine_get       time:   [247.72 ns 255.16 ns 257.02 ns]
+                        change: [+95.391% +99.065% +102.74%] (p = 0.08 > 0.05)
+                        No change in performance detected.
+
+Benchmarking state_machine_incr_durable
+Benchmarking state_machine_incr_durable: Analyzing
+state_machine_incr_durable
+                        time:   [9.0939 ms 9.3827 ms 9.4549 ms]
+                        change: [+56.843% +62.826% +69.027%] (p = 0.10 > 0.05)
+                        No change in performance detected.
+
+Benchmarking snapshot_serialization
+Benchmarking snapshot_serialization: Analyzing
+snapshot_serialization  time:   [6.2535 µs 6.4516 µs 6.5012 µs]
+                        change: [+62.126% +69.524% +77.307%] (p = 0.10 > 0.05)
+                        No change in performance detected.
+
+Benchmarking append_entry_durable
+Benchmarking append_entry_durable: Analyzing
+append_entry_durable    time:   [8.6467 ms 11.914 ms 12.730 ms]
+                        change: [+187.09% +255.46% +324.05%] (p = 0.08 > 0.05)
+                        No change in performance detected.
+
+Benchmarking resp_decode_parse_encode
+Benchmarking resp_decode_parse_encode: Analyzing
+resp_decode_parse_encode
+                        time:   [461.74 ns 461.77 ns 461.91 ns]
+                        change: [+113.21% +114.18% +115.15%] (p = 0.10 > 0.05)
+                        No change in performance detected.
+

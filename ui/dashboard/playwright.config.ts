@@ -1,0 +1,2 @@
+import { defineConfig } from '@playwright/test';
+export default defineConfig({testDir:'./tests',testMatch:process.env.RAFTKV_UI_TEST_MODE==='live'?'live.spec.ts':'dashboard.spec.ts',timeout:20000,use:{baseURL:'http://127.0.0.1:5173',headless:true,launchOptions:{executablePath:process.env.CHROME_PATH}},webServer:{command:`VITE_DEMO_MODE=${process.env.RAFTKV_UI_TEST_MODE==='live'?'false':'true'} npm run dev -- --host 127.0.0.1`,url:'http://127.0.0.1:5173',reuseExistingServer:false},reporter:'list'});
