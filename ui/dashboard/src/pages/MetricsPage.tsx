@@ -101,7 +101,7 @@ export default function MetricsPage() {
                   dataKey="second"
                   tick={{
                     fill: "var(--text-tertiary)",
-                    fontSize: 11
+                    fontSize: "0.6875rem"
                   }}
                   axisLine={false}
                   tickLine={false}
@@ -110,7 +110,7 @@ export default function MetricsPage() {
                 <YAxis
                   tick={{
                     fill: "var(--text-tertiary)",
-                    fontSize: 11
+                    fontSize: "0.6875rem"
                   }}
                   axisLine={false}
                   tickLine={false}
@@ -159,7 +159,7 @@ export default function MetricsPage() {
                   dataKey="second"
                   tick={{
                     fill: "var(--text-tertiary)",
-                    fontSize: 11
+                    fontSize: "0.6875rem"
                   }}
                   axisLine={false}
                   tickLine={false}
@@ -168,7 +168,7 @@ export default function MetricsPage() {
                 <YAxis
                   tick={{
                     fill: "var(--text-tertiary)",
-                    fontSize: 11
+                    fontSize: "0.6875rem"
                   }}
                   axisLine={false}
                   tickLine={false}

@@ -7,15 +7,17 @@ import {formatBytes,formatNumber} from "../lib/format";
 import type {AddMemberRequest} from "../types/api";
 import Panel from "../components/common/Panel";
 import ConfirmDialog from "../components/common/ConfirmDialog";
+import AppearanceSettings from "../components/common/AppearanceSettings";
 export default function AdministrationPage(){
  const queryClient=useQueryClient();const cluster=useCluster();const snapshots=useQuery({queryKey:["snapshots"],queryFn:api.getSnapshots});
  const [transferTarget,setTransferTarget]=useState<number|null>(null);const [removeTarget,setRemoveTarget]=useState<number|null>(null);const [confirmFlush,setConfirmFlush]=useState(false);const [adding,setAdding]=useState(false);const [member,setMember]=useState<AddMemberRequest>({id:4,role:"learner",raftAddress:"",clientAddress:"",adminAddress:""});
  const invalidate=()=>Promise.all([queryClient.invalidateQueries({queryKey:["cluster"]}),queryClient.invalidateQueries({queryKey:["snapshots"]})]);
  const backup=useMutation({mutationFn:api.downloadBackup,onSuccess:blob=>{const url=URL.createObjectURL(blob);const link=document.createElement("a");link.href=url;link.download="backup.rkv";link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}});const snapshot=useMutation({mutationFn:api.triggerSnapshot,onSuccess:invalidate});const transfer=useMutation({mutationFn:(targetId:number)=>api.transferLeadership({targetId}),onSuccess:invalidate});const remove=useMutation({mutationFn:api.removeMember,onSuccess:invalidate});const add=useMutation({mutationFn:()=>api.addMember(member),onSuccess:async()=>{setAdding(false);await invalidate();}});const flush=useMutation({mutationFn:()=>api.executeCommand({command:"FLUSHDB",confirmed:true}),onSuccess:async result=>{if(!result.success)throw new Error(result.display);await Promise.all([invalidate(),queryClient.invalidateQueries({queryKey:["keys"]})]);}});
  const error=backup.error??cluster.error??snapshots.error??snapshot.error??transfer.error??remove.error??add.error??flush.error;const busy=snapshot.isPending||transfer.isPending||remove.isPending||add.isPending||flush.isPending;
- if(!cluster.data)return <div className={`page-state ${cluster.isError?"page-state--error":""}`}>{cluster.error?.message??"Loading administration"}</div>;
+ if(!cluster.data)return <div className="stack-xl"><AppearanceSettings/><div className={`page-state ${cluster.isError?"page-state--error":""}`}>{cluster.error?.message??"Loading administration"}</div></div>;
  const members=cluster.data.members??cluster.data.nodes.map(n=>({id:n.nodeId,role:"voter" as const,raftAddress:n.raftAddress??"",clientAddress:n.clientAddress,adminAddress:n.adminAddress}));
  return <div className="stack-xl">
+  <AppearanceSettings/>
   {error && <div role="alert" className="feedback feedback--error">{error.message}</div>}
   <div className="admin-grid">
    <Panel title="Cluster membership" description="Join as learner, catch up, then promote through joint consensus." action={<button className="button button--primary button--small" disabled={busy} onClick={()=>setAdding(!adding)}><Plus size={14}/>Add member</button>}>

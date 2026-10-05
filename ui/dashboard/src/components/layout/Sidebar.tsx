@@ -1,5 +1,4 @@
 import {
-  Activity,
   Boxes,
   Database,
   FlaskConical,
@@ -55,21 +54,10 @@ const navItems = [
 export default function Sidebar() {
   return (
     <aside className="sidebar">
-      <div className="sidebar__brand">
-        <div className="sidebar__brand-mark">
-          <Activity size={18} strokeWidth={2} />
-        </div>
-
-        <div>
-          <div className="sidebar__brand-title">
-            RaftKV
-          </div>
-
-          <div className="sidebar__brand-subtitle">
-            Control Plane
-          </div>
-        </div>
-      </div>
+      <NavLink to="/" className="sidebar__brand" aria-label="RaftKV overview">
+        <img className="sidebar__logo" src="/raftkv-logo.png" alt="RaftKV" width="1254" height="1254" />
+        <span className="sidebar__brand-subtitle">Control Plane</span>
+      </NavLink>
 
       <nav className="sidebar__nav">
         <div className="sidebar__nav-label">
