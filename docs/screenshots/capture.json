@@ -1,104 +1,55 @@
 {
-  "capturedAt": "2026-10-05T16:39:51.236Z",
+  "capturedAt": "2026-10-05T16:49:06.167Z",
   "source": "live local three-node RaftKV plus isolated simulation lab",
   "screens": [
     {
-      "theme": "dark",
+      "theme": "light",
       "route": "/",
       "fontScale": 150,
-      "viewport": "1600×1100",
+      "viewport": "1600\u00d71100",
       "file": "docs/screenshots/cluster-overview.png"
     },
     {
-      "theme": "dark",
+      "theme": "light",
       "route": "/keys",
       "fontScale": 150,
-      "viewport": "1600×1100",
+      "viewport": "1600\u00d71100",
       "file": "docs/screenshots/key-explorer.png"
     },
     {
-      "theme": "dark",
+      "theme": "light",
       "route": "/console",
       "fontScale": 150,
-      "viewport": "1600×1100",
+      "viewport": "1600\u00d71100",
       "file": "docs/screenshots/command-console.png"
     },
     {
-      "theme": "dark",
+      "theme": "light",
       "route": "/raft",
       "fontScale": 150,
-      "viewport": "1600×1100",
+      "viewport": "1600\u00d71100",
       "file": "docs/screenshots/raft-visualizer.png"
     },
     {
-      "theme": "dark",
+      "theme": "light",
       "route": "/metrics",
       "fontScale": 150,
-      "viewport": "1600×1100",
+      "viewport": "1600\u00d71100",
       "file": "docs/screenshots/metrics.png"
     },
     {
-      "theme": "dark",
+      "theme": "light",
       "route": "/simulation",
       "fontScale": 150,
-      "viewport": "1600×1100",
+      "viewport": "1600\u00d71100",
       "file": "docs/screenshots/simulation-lab.png"
     },
     {
-      "theme": "dark",
+      "theme": "light",
       "route": "/administration",
       "fontScale": 150,
-      "viewport": "1600×1100",
+      "viewport": "1600\u00d71100",
       "file": "docs/screenshots/administration.png"
-    },
-    {
-      "theme": "light",
-      "route": "/",
-      "fontScale": 150,
-      "viewport": "1600×1100",
-      "file": "docs/screenshots/light/cluster-overview.png"
-    },
-    {
-      "theme": "light",
-      "route": "/keys",
-      "fontScale": 150,
-      "viewport": "1600×1100",
-      "file": "docs/screenshots/light/key-explorer.png"
-    },
-    {
-      "theme": "light",
-      "route": "/console",
-      "fontScale": 150,
-      "viewport": "1600×1100",
-      "file": "docs/screenshots/light/command-console.png"
-    },
-    {
-      "theme": "light",
-      "route": "/raft",
-      "fontScale": 150,
-      "viewport": "1600×1100",
-      "file": "docs/screenshots/light/raft-visualizer.png"
-    },
-    {
-      "theme": "light",
-      "route": "/metrics",
-      "fontScale": 150,
-      "viewport": "1600×1100",
-      "file": "docs/screenshots/light/metrics.png"
-    },
-    {
-      "theme": "light",
-      "route": "/simulation",
-      "fontScale": 150,
-      "viewport": "1600×1100",
-      "file": "docs/screenshots/light/simulation-lab.png"
-    },
-    {
-      "theme": "light",
-      "route": "/administration",
-      "fontScale": 150,
-      "viewport": "1600×1100",
-      "file": "docs/screenshots/light/administration.png"
     }
   ]
 }

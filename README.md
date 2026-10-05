@@ -107,7 +107,7 @@ Fsync remains conservative and expensive; published short debug-build benchmark 
 
 The dashboard now starts with **150% font size**. **Administration → Appearance** contains the only theme and text-size controls: choose light/dark mode, adjust text from 85% to 150%, or reset to dark mode at 150%. Preferences persist locally per browser and synchronize across its tabs. Existing preferences migrate to the new default while retaining the chosen theme. The transparent SVG brand has no background tile; its wordmark adapts to the theme. All dropdowns are custom themed, keyboard-accessible menus rather than operating-system selectors.
 
-These screenshots were captured on **2026-10-05**, at **1600 × 1100** with **150% text**, from the actual local three-node cluster and separate lab service. They are live application screenshots, not the previous demo fixtures. Term, leader, indexes and metrics reflect the capture moment and can differ between screens. The local database and snapshot list were empty; those screens intentionally show their real empty states. Metrics display a short observation window, not a performance benchmark.
+These screenshots were captured on **2026-10-05**, at **1600 × 1100** with **150% text**, from the actual local three-node cluster and separate lab service. The primary gallery below uses **light mode**. They are live application screenshots, not the previous demo fixtures. Term, leader, indexes and metrics reflect the capture moment and can differ between screens. The local database and snapshot list were empty; those screens intentionally show their real empty states. Metrics display a short observation window, not a performance benchmark.
 
 ### Cluster Overview
 
@@ -151,40 +151,7 @@ Contains Appearance settings, cluster membership, learner promotion, leadership 
 
 ![Live administration at 150% font size](docs/screenshots/administration.png)
 
-<details>
-<summary><strong>Light-mode gallery — all seven screens at 150%</strong></summary>
 
-The same running services and the same text scale, with light surfaces and a dark SVG wordmark. Each screenshot is a separate capture, so live counters can advance.
-
-**Cluster Overview**
-
-![Light cluster overview](docs/screenshots/light/cluster-overview.png)
-
-**Key Explorer**
-
-![Light key explorer](docs/screenshots/light/key-explorer.png)
-
-**Command Console**
-
-![Light command console](docs/screenshots/light/command-console.png)
-
-**Raft Visualizer**
-
-![Light Raft visualizer](docs/screenshots/light/raft-visualizer.png)
-
-**Metrics**
-
-![Light metrics](docs/screenshots/light/metrics.png)
-
-**Simulation Lab**
-
-![Light simulation lab](docs/screenshots/light/simulation-lab.png)
-
-**Administration / Appearance**
-
-![Light administration](docs/screenshots/light/administration.png)
-
-</details>
 
 ### Reproduce the gallery
 
@@ -198,7 +165,7 @@ cd ../..
 node scripts/capture_dashboard.mjs
 ```
 
-The script opens fresh headless browser contexts, asserts the 150% default on every screen, captures both themes, checks for page errors and horizontal overflow, and records [capture metadata](docs/screenshots/capture.json). It submits only the read-only `INFO raft` console command and does not seed keys or mutate membership. Set `CHROME_PATH` to use an installed Chrome executable, or `RAFTKV_DASHBOARD_URL` / `RAFTKV_SCREENSHOT_DIR` to change the service URL / destination.
+The script opens fresh headless browser contexts, asserts the 150% default on every screen, captures light mode, checks for page errors and horizontal overflow, and records [capture metadata](docs/screenshots/capture.json). It submits only the read-only `INFO raft` console command and does not seed keys or mutate membership. Set `CHROME_PATH` to use an installed Chrome executable, or `RAFTKV_DASHBOARD_URL` / `RAFTKV_SCREENSHOT_DIR` to change the service URL / destination.
 
 ## License
 

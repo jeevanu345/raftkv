@@ -12,13 +12,13 @@ const browser=await chromium.launch({headless:true,...(process.env.CHROME_PATH?{
 const routes=[['/','cluster-overview'],['/keys','key-explorer'],['/console','command-console'],['/raft','raft-visualizer'],['/metrics','metrics'],['/simulation','simulation-lab'],['/administration','administration']];
 const evidence=[];
 try {
- for(const theme of ['dark','light']) {
+ for(const theme of (process.env.RAFTKV_SCREENSHOT_THEMES??'light').split(',')) {
   const context=await browser.newContext({viewport:{width:1600,height:1100},deviceScaleFactor:1});
   const page=await context.newPage();const errors=[];page.on('pageerror',error=>errors.push(error.message));
   await page.goto(`${url}/administration`);await page.getByLabel('Global font size').waitFor();
   if(await page.getByLabel('Global font size').inputValue()!=='150')throw new Error('Fresh browser must default to 150%');
   if(theme==='light'){await page.getByRole('combobox',{name:'Color theme'}).click();await page.getByRole('option',{name:'Light mode',exact:true}).click();}
-  const folder=theme==='dark'?destination:path.join(destination,'light');await mkdir(folder,{recursive:true});
+  const folder=theme==='light'?destination:path.join(destination,'dark');await mkdir(folder,{recursive:true});
   for(const [route,name]of routes){
    await page.goto(`${url}${route}`);await page.locator('.topbar__title').waitFor();await page.waitForTimeout(800);
    if(route==='/keys'){
