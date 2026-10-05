@@ -3,7 +3,7 @@
 proxies partition Raft traffic. Plaintext peer transport only; mTLS is tested
 separately by integration_cluster.py. No fault endpoint exists in the server.
 """
-import argparse,asyncio,concurrent.futures,json,pathlib,socket,subprocess,tempfile,threading,time,urllib.request
+import argparse,asyncio,concurrent.futures,json,pathlib,socket,subprocess,tempfile,threading,time,urllib.request,urllib.error
 ROOT=pathlib.Path(__file__).resolve().parents[1]
 
 def varint(data,position):
@@ -35,11 +35,11 @@ class Network:
  async def listen(self):
   self.servers=[]
   for node in range(1,self.count+1):
-   self.servers.append(await asyncio.start_server(lambda reader,writer,node=node:self.connect(node,reader,writer),'127.0.0.1',47000+node))
+   self.servers.append(await asyncio.start_server(lambda reader,writer,node=node:self.connect(node,reader,writer),'127.0.0.1',22000+node))
  async def connect(self,destination,reader,writer):
   remote=None;context={'from':None,'to':destination,'writers':[writer]};self.connections.append(context)
   try:
-   upstream,remote=await asyncio.open_connection('127.0.0.1',48000+destination);context['writers'].append(remote)
+   upstream,remote=await asyncio.open_connection('127.0.0.1',23000+destination);context['writers'].append(remote)
    preface=await reader.readexactly(24)
    if preface!=b'PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n':return
    remote.write(preface);await remote.drain()
@@ -84,10 +84,18 @@ def main():
  with tempfile.TemporaryDirectory(prefix='raftkv-chaos-') as temporary:
   directory=pathlib.Path(temporary)
   def api(node,path,body=None):
-   request=urllib.request.Request(f'http://127.0.0.1:{49000+node}{path}',data=None if body is None else json.dumps(body).encode(),headers={'Content-Type':'application/json'})
+   request=urllib.request.Request(f'http://127.0.0.1:{24000+node}{path}',data=None if body is None else json.dumps(body).encode(),headers={'Content-Type':'application/json'})
    with urllib.request.urlopen(request,timeout=8) as response:return json.load(response)
   def start(node):
    log=open(directory/f'{node}.log','a');processes[node]=subprocess.Popen([str(ROOT/'target/debug/raftkv-server'),'--config',str(directory/f'{node}.toml')],stdout=log,stderr=log)
+  def wait_started(node):
+   end=time.monotonic()+10
+   while time.monotonic()<end:
+    assert processes[node].poll() is None,f'node {node} exited during startup: '+(directory/f'{node}.log').read_text()[-2000:]
+    try:
+     api(node,'/api/v1/status');return
+    except (OSError,urllib.error.URLError):time.sleep(.05)
+   raise AssertionError(f'node {node} did not start')
   def leader(available):
    end=time.monotonic()+15
    while time.monotonic()<end:
@@ -109,18 +117,19 @@ def main():
    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:list(pool.map(client,range(1,4)))
   try:
    for node in ids:
-    config=f'id={node}\nraft_listen="127.0.0.1:{48000+node}"\nclient_listen="127.0.0.1:{50000+node}"\nmetrics_listen="127.0.0.1:{51000+node}"\nui_listen="127.0.0.1:{49000+node}"\ndata_dir="{directory/str(node)}"\nelection_timeout_ms=800\nheartbeat_ms=80\ntick_ms=10\nsnapshot_entries_threshold=12\npre_vote=true\n'
-    for peer in ids:config+=f'\n[[peers]]\nid={peer}\nraft_addr="http://127.0.0.1:{47000+peer}"\nclient_addr="127.0.0.1:{50000+peer}"\nadmin_addr="http://127.0.0.1:{49000+peer}"\n'
+    config=f'id={node}\nraft_listen="127.0.0.1:{23000+node}"\nclient_listen="127.0.0.1:{25000+node}"\nmetrics_listen="127.0.0.1:{26000+node}"\nui_listen="127.0.0.1:{24000+node}"\ndata_dir="{directory/str(node)}"\nelection_timeout_ms=800\nheartbeat_ms=80\ntick_ms=10\nsnapshot_entries_threshold=12\npre_vote=true\n'
+    for peer in ids:config+=f'\n[[peers]]\nid={peer}\nraft_addr="http://127.0.0.1:{22000+peer}"\nclient_addr="127.0.0.1:{25000+peer}"\nadmin_addr="http://127.0.0.1:{24000+peer}"\n'
     (directory/f'{node}.toml').write_text(config);start(node)
+   for node in ids:wait_started(node)
    old=leader(ids);print("initial leader",old,flush=True);clients(old);majority=[node for node in ids if node!=old];network.partition([[old],majority]);time.sleep(2);current=leader(majority);print("majority leader",current,flush=True)
    result=api(old,'/api/v1/commands',{'command':'GET chaos','targetNodeId':old});assert not result['success'],result
    result=api(old,'/api/v1/commands',{'command':'SET uncommitted minority','targetNodeId':old});assert not result['success'],result
    assert network.blocked and any(connection['from'] for connection in network.connections),'proxy did not identify peer streams'
-   print("partition workload",flush=True);clients(current);api(current,'/api/v1/admin/snapshot',{});processes[old].kill();processes[old].wait();start(old);network.heal();time.sleep(2)
+   print("partition workload",flush=True);clients(current);api(current,'/api/v1/admin/snapshot',{});processes[old].kill();processes[old].wait();start(old);wait_started(old);network.heal();time.sleep(2)
    assert api(current,'/api/v1/commands',{'command':'GET uncommitted'})['display']=='(nil)'
    # Directed components are supported; test a second minority and peer latency.
    minority=[node for node in ids if node!=current][:max(1,args.nodes//2)];majority=[node for node in ids if node not in minority];network.partition([minority,majority]);network.delay=.01;print("latency workload",flush=True);clients(current);network.delay=0;network.heal()
-   processes[current].kill();processes[current].wait();replacement=leader([node for node in ids if node!=current]);print("replacement leader",replacement,flush=True);clients(replacement);start(current);time.sleep(2)
+   processes[current].kill();processes[current].wait();replacement=leader([node for node in ids if node!=current]);print("replacement leader",replacement,flush=True);clients(replacement);start(current);wait_started(current);time.sleep(2)
    file=args.history or directory/'history.json';file.parent.mkdir(parents=True,exist_ok=True);file.write_text(json.dumps(history,indent=2));subprocess.check_call([str(ROOT/'target/debug/linearizability-checker'),str(file)])
    print(f'{args.nodes}-node external peer partition/heal/latency/leader-kill/snapshot/restart passed; {len(history)} checked operations; {network.bytes} peer HTTP2 bytes')
   except Exception:
