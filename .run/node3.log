@@ -1,5 +1,13 @@
-[2m2026-05-28T18:58:13.659141Z[0m [32m INFO[0m [2mraftkv_server[0m[2m:[0m starting raftkv-server [3mnode[0m[2m=[0m3 [3mraft[0m[2m=[0m127.0.0.1:7003 [3mclient[0m[2m=[0m127.0.0.1:6381
-Error: sled error: IO error: could not acquire lock on "/Users/jeevanu/Desktop/PROJECTSS/raftkv/.run/data/node3/meta/db": Os { code: 35, kind: WouldBlock, message: "Resource temporarily unavailable" }
-
-Caused by:
-    IO error: could not acquire lock on "/Users/jeevanu/Desktop/PROJECTSS/raftkv/.run/data/node3/meta/db": Os { code: 35, kind: WouldBlock, message: "Resource temporarily unavailable" }
+[2m2026-09-11T14:13:37.692000Z[0m [32m INFO[0m [2mraftkv_server[0m[2m:[0m starting raftkv-server [3mnode[0m[2m=[0m3 [3mraft[0m[2m=[0m127.0.0.1:7003 [3mclient[0m[2m=[0m127.0.0.1:6381
+[2m2026-09-11T14:13:37.715159Z[0m [32m INFO[0m [2mresp_server::server[0m[2m:[0m RESP server listening [3maddr[0m[2m=[0m"127.0.0.1:6381"
+[2m2026-09-11T14:13:37.715250Z[0m [32m INFO[0m [2mraftkv_server[0m[2m:[0m metrics endpoint listening [3maddr[0m[2m=[0m127.0.0.1:9103
+[2m2026-09-11T14:13:37.715253Z[0m [32m INFO[0m [2mraftkv_server[0m[2m:[0m dashboard API listening [3maddr[0m[2m=[0m127.0.0.1:8082
+[2m2026-09-11T14:13:38.177189Z[0m [32m INFO[0m [2mraftkv_server::runtime[0m[2m:[0m election started [3mterm[0m[2m=[0m1 [3mpre_vote[0m[2m=[0mtrue
+[2m2026-09-11T14:13:38.177779Z[0m [32m INFO[0m [2mraftkv_server::runtime[0m[2m:[0m term bumped [3mterm[0m[2m=[0m1
+[2m2026-09-11T14:13:38.177785Z[0m [32m INFO[0m [2mraftkv_server::runtime[0m[2m:[0m election started [3mterm[0m[2m=[0m1 [3mpre_vote[0m[2m=[0mfalse
+[2m2026-09-11T14:13:38.193782Z[0m [32m INFO[0m [2mraftkv_server::runtime[0m[2m:[0m became follower [3mterm[0m[2m=[0m1 [3mleader[0m[2m=[0mNone [3mnode[0m[2m=[0m3
+[2m2026-09-11T16:56:43.896739Z[0m [32m INFO[0m [2mraftkv_server::runtime[0m[2m:[0m election started [3mterm[0m[2m=[0m2 [3mpre_vote[0m[2m=[0mtrue
+[2m2026-09-11T16:56:43.899091Z[0m [32m INFO[0m [2mraftkv_server::runtime[0m[2m:[0m term bumped [3mterm[0m[2m=[0m2
+[2m2026-09-11T16:56:43.899126Z[0m [32m INFO[0m [2mraftkv_server::runtime[0m[2m:[0m election started [3mterm[0m[2m=[0m2 [3mpre_vote[0m[2m=[0mfalse
+[2m2026-09-11T16:56:43.922690Z[0m [32m INFO[0m [2mraftkv_server::runtime[0m[2m:[0m became leader [3mterm[0m[2m=[0m2 [3mnode[0m[2m=[0m3
+[2m2026-09-11T16:56:43.922772Z[0m [32m INFO[0m [2mraftkv_server::runtime[0m[2m:[0m election won [3mterm[0m[2m=[0m2

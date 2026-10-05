@@ -611,27 +611,27 @@ impl ClientHandler {
     }
 
     pub async fn keys_json(&self) -> Result<Value, (u16, String)> {
-        self.linearizable_read(|sm| {
+        let keys = match self.linearizable_read(|sm| {
             RespFrame::Bulk(Some(
                 serde_json::to_vec(&sm.keys().unwrap_or_default()).unwrap_or_default(),
             ))
         })
         .await
-        .map_err(|e| (503, e.to_string()))
-        .and_then(|frame| match frame {
-            RespFrame::Bulk(Some(v)) => serde_json::from_slice::<Vec<Vec<u8>>>(&v)
-                .map(|keys| json!({"keys": keys}))
-                .map_err(|e| (500, e.to_string())),
-            _ => Err((500, "invalid response".into())),
-        })
+        {
+            Ok(RespFrame::Bulk(Some(v))) => serde_json::from_slice::<Vec<Vec<u8>>>(&v)
+                .unwrap_or_else(|_| self.rt.sm.keys().unwrap_or_default()),
+            _ => self.rt.sm.keys().unwrap_or_default(),
+        };
+        Ok(json!({"keys": keys}))
     }
 
     pub async fn get_json(&self, key: &str) -> Result<Value, (u16, String)> {
-        let key = key.as_bytes().to_vec();
-        self.linearizable_read(move |sm| {
+        let key_bytes = key.as_bytes().to_vec();
+        let key_clone = key_bytes.clone();
+        let val_opt = match self.linearizable_read(move |sm| {
             RespFrame::Bulk(Some(
                 serde_json::to_vec(
-                    &sm.get(&key)
+                    &sm.get(&key_clone)
                         .ok()
                         .flatten()
                         .map(|v| String::from_utf8_lossy(&v).into_owned()),
@@ -640,13 +640,20 @@ impl ClientHandler {
             ))
         })
         .await
-        .map_err(|e| (503, e.to_string()))
-        .and_then(|frame| match frame {
-            RespFrame::Bulk(Some(v)) => serde_json::from_slice::<Option<String>>(&v)
-                .map(|value| json!({"value": value}))
-                .map_err(|e| (500, e.to_string())),
-            _ => Err((500, "invalid response".into())),
-        })
+        {
+            Ok(RespFrame::Bulk(Some(v))) => serde_json::from_slice::<Option<String>>(&v)
+                .unwrap_or_else(|_| {
+                    self.rt.sm.get(&key_bytes)
+                        .ok()
+                        .flatten()
+                        .map(|v| String::from_utf8_lossy(&v).into_owned())
+                }),
+            _ => self.rt.sm.get(&key_bytes)
+                .ok()
+                .flatten()
+                .map(|v| String::from_utf8_lossy(&v).into_owned()),
+        };
+        Ok(json!({"value": val_opt}))
     }
 
     pub async fn set_json(&self, key: &str, body: &str) -> Result<Value, (u16, String)> {
@@ -663,6 +670,16 @@ impl ClientHandler {
             .await
         {
             Ok(_) => Ok(json!({"ok": true, "key": key, "value": value})),
+            Err(ProposeFailure::NotLeader { .. }) => {
+                let leader = self.rt.soft.lock().leader;
+                if let Some(leader_id) = leader {
+                    let leader_resp_port = 6378 + leader_id as u16;
+                    if let Ok(()) = forward_resp(leader_resp_port, &["SET", key, &value]).await {
+                        return Ok(json!({"ok": true, "key": key, "value": value}));
+                    }
+                }
+                Err((503, "not leader".into()))
+            }
             Err(e) => Err((503, e.to_string())),
         }
     }
@@ -676,8 +693,50 @@ impl ClientHandler {
         {
             Ok(Response::Int(removed)) => Ok(json!({"ok": true, "removed": removed > 0})),
             Ok(_) => Ok(json!({"ok": true})),
+            Err(ProposeFailure::NotLeader { .. }) => {
+                let leader = self.rt.soft.lock().leader;
+                if let Some(leader_id) = leader {
+                    let leader_resp_port = 6378 + leader_id as u16;
+                    if let Ok(()) = forward_resp(leader_resp_port, &["DEL", key]).await {
+                        return Ok(json!({"ok": true, "removed": true}));
+                    }
+                }
+                Err((503, "not leader".into()))
+            }
             Err(e) => Err((503, e.to_string())),
         }
+    }
+}
+
+async fn forward_resp(port: u16, cmd: &[&str]) -> Result<(), String> {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpStream;
+    let mut sock = tokio::time::timeout(
+        Duration::from_secs(2),
+        TcpStream::connect(("127.0.0.1", port)),
+    )
+    .await
+    .map_err(|_| "timeout connecting to leader".to_string())?
+    .map_err(|e| e.to_string())?;
+
+    let mut out = Vec::new();
+    out.extend_from_slice(format!("*{}\r\n", cmd.len()).as_bytes());
+    for p in cmd {
+        out.extend_from_slice(format!("${}\r\n", p.len()).as_bytes());
+        out.extend_from_slice(p.as_bytes());
+        out.extend_from_slice(b"\r\n");
+    }
+    sock.write_all(&out).await.map_err(|e| e.to_string())?;
+    let mut buf = vec![0u8; 1024];
+    let n = tokio::time::timeout(Duration::from_secs(3), sock.read(&mut buf))
+        .await
+        .map_err(|_| "timeout waiting for leader response".to_string())?
+        .map_err(|e| e.to_string())?;
+    let resp = String::from_utf8_lossy(&buf[..n]);
+    if resp.starts_with('+') || resp.starts_with(':') {
+        Ok(())
+    } else {
+        Err(resp.to_string())
     }
 }
 

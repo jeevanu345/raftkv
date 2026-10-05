@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="logo.png" alt="RaftKV Logo" width="280" />
+</p>
+
 # raftkv
 
 **A Raft-replicated key-value store in Rust with a Redis-compatible client protocol.**
