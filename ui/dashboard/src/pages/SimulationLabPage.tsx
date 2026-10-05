@@ -1,3 +1,4 @@
+import Select from "../components/common/Select";
 import {
   Activity,
   Pause,
@@ -118,7 +119,7 @@ action.mutate({name:data.running?"pause":"start"})
         </div>
       </section>
 
-      <Panel title="Directed partition and membership" description="These actions affect only simulated nodes."><form className="member-form" onSubmit={event=>{event.preventDefault();const form=new FormData(event.currentTarget);action.mutate({name:"asymmetric",nodeId:Number(form.get("from")),peerId:Number(form.get("to"))});}}><label>Block sender<select name="from">{data.nodes.map(node=><option key={node.id}>{node.id}</option>)}</select></label><label>To receiver<select name="to">{data.nodes.map(node=><option key={node.id}>{node.id}</option>)}</select></label><button className="button button--ghost" disabled={action.isPending}>Block directed link</button></form><label>Remove simulated voter<select defaultValue="" disabled={action.isPending} onChange={event=>{if(event.target.value)action.mutate({name:"remove-member",nodeId:Number(event.target.value)});event.target.value="";}}><option value="">Choose a node</option>{data.nodes.map(node=><option key={node.id}>{node.id}</option>)}</select></label></Panel>
+      <Panel title="Directed partition and membership" description="These actions affect only simulated nodes."><form className="member-form" onSubmit={event=>{event.preventDefault();const form=new FormData(event.currentTarget);action.mutate({name:"asymmetric",nodeId:Number(form.get("from")),peerId:Number(form.get("to"))});}}><label>Block sender<Select aria-label="Block sender" name="from" options={data.nodes.map(node=>({value:String(node.id),label:`Node ${node.id}`}))}/></label><label>To receiver<Select aria-label="To receiver" name="to" options={data.nodes.map(node=>({value:String(node.id),label:`Node ${node.id}`}))}/></label><button className="button button--ghost" disabled={action.isPending}>Block directed link</button></form><label>Remove simulated voter<Select aria-label="Remove simulated voter" value="" disabled={action.isPending} onChange={value=>{if(value)action.mutate({name:"remove-member",nodeId:Number(value)});}} options={[{value:"",label:"Choose a node"},...data.nodes.map(node=>({value:String(node.id),label:`Node ${node.id}`}))]}/></label></Panel>
       <div className="simulation-grid">
         {data.nodes.map((node) => (
           <article
@@ -193,7 +194,7 @@ action.mutate({name:data.running?"pause":"start"})
                 <ShieldAlert size={13} />
                 {node.crashed?"Restart":"Crash"}
               </button>
-              <label>Storage/clock fault<select aria-label={`Node ${node.id} fault`} defaultValue="" disabled={action.isPending} onChange={event=>{if(event.target.value)action.mutate({name:event.target.value,nodeId:node.id,ticks:20});event.target.value="";}}><option value="">Choose a fault</option>{["disk-failure","fsync-failure","torn-write","snapshot-failure","clock-stall","slow-follower","snapshot"].map(name=><option key={name} value={name}>{name}</option>)}</select></label>
+              <label>Storage/clock fault<Select aria-label={`Node ${node.id} fault`} value="" disabled={action.isPending} onChange={value=>{if(value)action.mutate({name:value,nodeId:node.id,ticks:20});}} options={[{value:"",label:"Choose a fault"},...["disk-failure","fsync-failure","torn-write","snapshot-failure","clock-stall","slow-follower","snapshot"].map(name=>({value:name,label:name}))]}/></label>
             </div>
           </article>
         ))}

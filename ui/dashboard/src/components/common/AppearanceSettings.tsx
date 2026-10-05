@@ -1,3 +1,4 @@
+import Select from "./Select";
 import Panel from "./Panel";
 import { setAppearance, useAppearance } from "../../lib/appearance";
 
@@ -6,9 +7,7 @@ export default function AppearanceSettings() {
   return <Panel title="Appearance" description="Applies across every dashboard page. Preferences are saved in this browser.">
     <div className="appearance-settings">
       <label className="appearance-settings__field">Color theme
-        <select value={theme} onChange={event => setAppearance({ theme: event.target.value === "light" ? "light" : "dark" })}>
-          <option value="dark">Dark mode</option><option value="light">Light mode</option>
-        </select>
+        <Select aria-label="Color theme" value={theme} onChange={value => setAppearance({ theme: value === "light" ? "light" : "dark" })} options={[{value:"dark",label:"Dark mode"},{value:"light",label:"Light mode"}]}/>
       </label>
       <div className="appearance-settings__field">
         <label htmlFor="font-scale">Global font size <output htmlFor="font-scale">{fontScale}%</output></label>

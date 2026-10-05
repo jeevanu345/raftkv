@@ -1,3 +1,4 @@
+import Select from "../components/common/Select";
 import {
   ChevronRight,
   Clock3,
@@ -97,10 +98,7 @@ export default function CommandConsolePage() {
         description="Execute supported RESP commands against RaftKV."
       >
         <label className="field">Command target
-          <select aria-label="Command target" value={target} onChange={event=>setTarget(event.target.value)} disabled={running}>
-            <option value="">Current leader</option>
-            {cluster.data?.nodes.map(node=><option key={node.nodeId} value={node.nodeId}>Node {node.nodeId} ({node.role})</option>)}
-          </select>
+          <Select aria-label="Command target" value={target} onChange={setTarget} disabled={running} options={[{value:"",label:"Current leader"},...(cluster.data?.nodes??[]).map(node=>({value:String(node.nodeId),label:`Node ${node.nodeId} (${node.role})`}))]}/>
         </label>
         <div className="console-input">
           <span className="console-prompt">

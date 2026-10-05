@@ -15,6 +15,8 @@ VITE_DEMO_MODE=false npm run dev
 
 Appearance controls are available only in **Administration → Appearance**. Choose light or dark mode and adjust the global font size from 85% to 150%. Changes apply to every dashboard route immediately and persist in this browser; Reset appearance restores dark mode at 100%. These are local display preferences and do not change cluster configuration.
 
+The development proxy preserves the browser-facing Host header for same-origin validation. Production reverse proxies must preserve the public Host too, or configure the explicit trusted `allowed_origins`; do not disable origin checks.
+
 Vite binds localhost:5173 and proxies `/api`, `/health` and `/metrics` to node 1 on 8080, and `/lab` to the isolated lab on 8090. HTTP key/command/admin requests can forward to the leader. The console's explicit target selector instead exposes that selected node's real response, including follower MOVED errors.
 
 Demo mode (`VITE_DEMO_MODE=true`) is explicitly labelled and contains stateful UI fixtures. It is not the deterministic consensus simulator. To execute actual simulator faults/replay, start `raftkv-lab` and use live mode.
