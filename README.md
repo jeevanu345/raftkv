@@ -1,180 +1,278 @@
-# raftkv
+<p align="center">
+  <img src="logo.png" alt="RaftKV" width="240" />
+</p>
 
-**A Raft-replicated key-value store in Rust with a Redis-compatible client protocol.**
+<h1 align="center">RaftKV</h1>
 
-`raftkv` is an educational distributed-systems implementation built around a deterministic Raft state machine. Nodes communicate over gRPC, persist a replicated log and snapshots, apply committed commands to a sled-backed key-value state machine, and expose the client surface through RESP2/RESP3—the wire protocol used by Redis-compatible clients.
+<p align="center">
+  <strong>A Raft-replicated key-value store in Rust, with a live operator console and a RESP2-compatible client subset.</strong>
+</p>
 
-> **Status:** early-stage research/learning implementation (`0.1.0`, unreleased). It is useful for studying consensus, deterministic simulation, storage recovery, and protocol integration. It is not a drop-in production replacement for Redis, etcd, or Consul.
+<p align="center">
+  <img alt="Rust 1.75+" src="https://img.shields.io/badge/rust-1.75%2B-b7410e?logo=rust&logoColor=white" />
+  <img alt="React 19" src="https://img.shields.io/badge/console-React%2019%20%C2%B7%20Vite%208-2a7f8f?logo=react&logoColor=white" />
+  <img alt="Status 0.1.0 unreleased" src="https://img.shields.io/badge/status-0.1.0%20unreleased-8e6018" />
+  <img alt="License Apache-2.0" src="https://img.shields.io/badge/license-Apache--2.0-536a7b" />
+</p>
 
-## Why this project is interesting
+<p align="center">
+  <a href="#quick-start">Quick start</a> ·
+  <a href="#the-operator-console">Console tour</a> ·
+  <a href="#what-is-implemented">What's implemented</a> ·
+  <a href="#protocol-and-api">Protocol</a> ·
+  <a href="#workspace-and-reading-guide">Reading guide</a> ·
+  <a href="#validation">Validation</a>
+</p>
 
-The central design choice is a strict pure/impure boundary:
+<p align="center">
+  <img src="docs/screenshots/overview.png" alt="RaftKV operator console: cluster overview showing node 2 as leader in term 4, three reachable node APIs, commit index 19, and the three-node topology" width="100%" />
+</p>
 
-```text
-messages + ticks ──> raft-core ──> Action values
-                                      │
-             runtime executes I/O ────┘
-                 storage · gRPC · RESP · metrics
-```
+RaftKV separates a deterministic consensus core from disk, networking, timers and client handling. Nodes replicate commands over gRPC, persist a CRC32C-framed log and hard state, and apply committed operations to a sled-backed KV store. The React console exposes real node diagnostics, replication progress, local data inspection and leader-routed mutations.
 
-`raft-core` performs no I/O, asynchronous work, wall-clock reads, or operating-system randomness. It consumes protocol messages and timer ticks and emits explicit `Action` values. The outer runtime interprets those actions. This makes the consensus logic deterministic, replayable, and testable without a live cluster.
+> [!NOTE]
+> **Status: 0.1.0, unreleased educational implementation.** Snapshot state transfer, transactional crash recovery, live membership administration and authentication remain unfinished. This is a platform for studying and extending distributed systems; review [PROJECT_REPORT.md](PROJECT_REPORT.md) for evidence and engineering priorities.
 
-## Implemented capabilities
+---
 
-- Raft leader election, replication, conflict repair, quorum commit, and membership joint consensus.
-- Pre-vote and leadership transfer support.
-- Linearizable reads through the read-index protocol.
-- Segmented append-only storage with CRC32C framing and torn-tail recovery.
-- Atomic snapshot installation and snapshot retention.
-- Sled-backed metadata and key-value state machine.
-- RESP2/RESP3 command codec and Redis-compatible TCP client endpoint.
-- Tonic gRPC peer transport for Raft messages.
-- Deterministic cluster simulator and an in-process linearizability checker.
-- Prometheus text metrics endpoint, Grafana dashboard, Docker Compose setup, and Helm chart.
+## Quick start
 
-The protocol and implementation trade-offs are documented in [ARCHITECTURE.md](ARCHITECTURE.md), with a source-level Raft invariant map in [RAFT_NOTES.md](RAFT_NOTES.md).
-
-## Workspace structure
-
-| Crate / directory | Responsibility |
-| --- | --- |
-| `crates/raft-core` | Pure Raft state machine and protocol transitions |
-| `crates/raft-storage` | Segmented log, metadata, snapshots, recovery |
-| `crates/raft-net` | Tonic gRPC peer transport and protobuf bindings |
-| `crates/kv-state-machine` | Deterministic sled-backed key-value state machine |
-| `crates/resp-server` | RESP2/RESP3 parsing, encoding, and command dispatch |
-| `crates/raftkv-server` | Runtime wiring consensus, storage, network, clients, metrics |
-| `crates/raftkv-cli` | Small operator and smoke-test client |
-| `crates/linearizability-checker` | Wing–Gong-style checker for short histories |
-| `crates/sim-tests` | Deterministic, seed-replayable cluster simulation |
-| `proto/` | Raft and administration gRPC definitions |
-| `deploy/`, `helm/` | TOML examples and Kubernetes deployment assets |
-| `grafana/` | Dashboard and alerting examples |
-
-## Quick start: three-node local cluster
-
-### Prerequisites
-
-- Rust stable (the workspace declares Rust 1.75 or newer).
-- macOS or Linux; Windows is supported through WSL.
-- Optional: `redis-cli`, Docker, Docker Compose, `kubectl`, and Helm.
-
-The build vendors `protoc`, so a system protobuf installation is not required.
+**Prerequisites:** Rust stable (workspace minimum declaration: 1.75), Python 3 for launcher checks, Node.js 22.12 or newer with npm for the console, and macOS, Linux or WSL. The build vendors `protoc`. Use the current stable toolchain for the resolved dependencies.
 
 ```bash
-git clone https://github.com/jeevanu345/raftkv.git
-cd raftkv
 cargo build --workspace --release
-./scripts/run_cluster.sh
+./scripts/run_cluster.sh --no-build      # starts three voters and waits for a leader
+npm --prefix ui ci
+npm --prefix ui run dev                  # console at http://127.0.0.1:5173
 ```
 
-The helper starts three local nodes:
+Open [the operator console](http://127.0.0.1:5173). The launcher waits for all node APIs and a shared leader. Default node ports:
 
-| Node | Raft gRPC | RESP client | Metrics |
-| --- | ---: | ---: | ---: |
-| 1 | `7001` | `6379` | `9101` |
-| 2 | `7002` | `6380` | `9102` |
-| 3 | `7003` | `6381` | `9103` |
+| Node | Raft gRPC | RESP | Metrics | JSON API |
+| --- | ---: | ---: | ---: | ---: |
+| 1 | 7001 | 6379 | 9101 | 8080 |
+| 2 | 7002 | 6380 | 9102 | 8081 |
+| 3 | 7003 | 6381 | 9103 | 8082 |
 
-After an election, find the leader and exercise the cluster:
+Find the leader, then use its RESP port in place of the example address:
 
 ```bash
 ./target/release/raftkv-cli --addr 127.0.0.1:6379 status
 ./target/release/raftkv-cli --addr 127.0.0.1:6379 members
-./target/release/raftkv-cli --addr 127.0.0.1:6379 set greeting "hello raft"
-./target/release/raftkv-cli --addr 127.0.0.1:6379 get greeting
-
-# Or use any Redis-compatible client against the leader:
-redis-cli -p 6379 PING
-redis-cli -p 6379 SET greeting "hello raft"
-redis-cli -p 6379 GET greeting
-redis-cli -p 6379 INFO raft
+./target/release/raftkv-cli --addr 127.0.0.1:6380 set greeting "hello raft"
+./target/release/raftkv-cli --addr 127.0.0.1:6380 get greeting
 ```
 
-Writes sent to a follower currently return a `MOVED` response; use the leader directly. Stop the local cluster with:
+The CLI returns RESP output and does not follow leader redirects automatically; a follower answers writes with `-MOVED`. `CLUSTER NODES` is an informational peer list, not a complete Redis Cluster discovery implementation.
 
 ```bash
 ./scripts/stop_cluster.sh
 ```
 
-Logs and local data are written beneath `.run/`.
+Logs, configs, PID files and data remain under `.run/` for restart. Pre-existing untracked or manual processes must be stopped by their own PIDs; the shutdown helper only stops processes it can identify as belonging to its run directory.
 
-## Other deployment paths
+---
 
-### Docker Compose
+## The operator console
 
-```bash
-docker compose up --build
+The console is a local Vite app that proxies `/api` to each node's JSON API on loopback. Every number on screen is an **independent HTTP sample** from a node. The console says so wherever it matters, and never presents API reachability as proof of quorum. All screenshots below come from a real three-node cluster started with `./scripts/run_cluster.sh`.
+
+### Sign in
+
+A local operator profile (name and email) personalizes the workspace. It lives in the browser tab's session storage. **It is not API authentication**: node APIs remain unauthenticated.
+
+<p align="center">
+  <img src="docs/screenshots/welcome.png" alt="Welcome screen with the headline 'Your cluster. A clearer view.', an illustration of a leader replicating to two followers, and a local profile form" width="100%" />
+</p>
+
+### Home
+
+Reachable endpoints, the observed leader and term, the committed index, and one-click jumps into each node, the keyspace, replication and telemetry.
+
+<p align="center">
+  <img src="docs/screenshots/home.png" alt="Home pane: local cluster card with 3 of 3 endpoints reachable, node 2 leading in term 4, committed index 19, per-node endpoints, and shortcuts to the keyspace, replication and telemetry" width="100%" />
+</p>
+
+### Cluster overview
+
+Leadership, voting majority, commit and applied indices, the topology, sampled commit progression, and a state-integrity check. The check compares hashes only when the nodes' applied indices match.
+
+<details open>
+<summary><strong>Full page</strong></summary>
+<p align="center">
+  <img src="docs/screenshots/overview-full.png" alt="Full cluster overview: metrics row, topology cards for three nodes, consensus progress detail with commit sparkline, observed activity feed, state integrity with the shared state hash, and runtime boundaries" width="100%" />
+</p>
+</details>
+
+### Nodes & replication
+
+The node observation matrix, per-node consensus state, log and snapshot boundaries, read-only runtime configuration, and the leader's per-peer match and next indices. The **replicated log inspector** lists retained entries (index, term, kind and payload size) without exposing command values.
+
+<p align="center">
+  <img src="docs/screenshots/nodes.png" alt="Nodes and replication: observation matrix for nodes 1–3 showing roles, log and commit indices, applied lag, leader match and API round trip, followed by consensus state, log and snapshot, and runtime configuration panels" width="100%" />
+</p>
+
+<details>
+<summary><strong>Full page, including peer progress and the replicated log</strong></summary>
+<p align="center">
+  <img src="docs/screenshots/nodes-full.png" alt="Full nodes page including peer replication progress from the leader, membership and endpoints, the replicated log inspector with 19 entries, and the deterministic state fingerprint" width="100%" />
+</p>
+</details>
+
+### Keyspace explorer
+
+Browse and filter a node's **local applied state**, inspect a value with its source node and applied index, and propose a `SET` or `DELETE`. Mutations are always routed to the observed leader.
+
+<p align="center">
+  <img src="docs/screenshots/keyspace.png" alt="Keyspace explorer: seven keys listed from node 1 at applied index 19, a write form routed to leader node 2, and the value inspector showing user:1001:name = Ada Lovelace" width="100%" />
+</p>
+
+### Telemetry & events
+
+Proposal and Raft send rates computed from runtime counter deltas, status-API latency, commit and applied progression, all ten runtime counters, and a filterable history of browser-observed events. The Prometheus endpoint and the bundled Grafana dashboard and alerts cover persistent monitoring.
+
+<p align="center">
+  <img src="docs/screenshots/telemetry.png" alt="Telemetry: commit rate, Raft send rate of 39.6 per second, 22 ms status round trip and 18 session samples, with commit, applied, latency and pending-proposal charts" width="100%" />
+</p>
+
+### Architecture report & runbook
+
+A source-grounded field guide: the request and effect pipeline, crate layers, the consensus invariant map, storage mechanics and known limitations. The runbook pane connects more node APIs and generates the commands for a fresh, larger cluster.
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/architecture.png" alt="Architecture report: 'Consensus is a state machine. Everything else is an effect.', with the six-step request pipeline and architecture layers" /></td>
+    <td width="50%"><img src="docs/screenshots/connections.png" alt="Connections and runbook: connect a local node API form, observation settings, and the bootstrap plan for a larger fresh cluster" /></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>Architecture report</sub></td>
+    <td align="center"><sub>Connections & runbook</sub></td>
+  </tr>
+</table>
+
+### Keyboard, light appearance and mobile
+
+<kbd>⌘</kbd> <kbd>K</kbd> / <kbd>Ctrl</kbd> <kbd>K</kbd> opens tool search, navigated with arrows, <kbd>Enter</kbd> and <kbd>Esc</kbd>. Every pane has a bookmarkable URL fragment. The appearance setting persists locally, and reduced-motion preferences are respected.
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/command-menu.png" alt="Command menu filtered by 'rep', listing Nodes & replication, Architecture report and Connections & runbook" /></td>
+    <td width="50%"><img src="docs/screenshots/overview-light.png" alt="Cluster overview in the light appearance" /></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>Tool search (⌘K)</sub></td>
+    <td align="center"><sub>Light appearance</sub></td>
+  </tr>
+</table>
+
+The layout adapts down to 320px with no horizontal overflow, 40–44px touch targets, and a full-width navigation list.
+
+<table>
+  <tr>
+    <td width="25%"><img src="docs/screenshots/mobile-home.png" alt="Mobile home pane" /></td>
+    <td width="25%"><img src="docs/screenshots/mobile-overview.png" alt="Mobile cluster overview" /></td>
+    <td width="25%"><img src="docs/screenshots/mobile-keyspace.png" alt="Mobile keyspace explorer" /></td>
+    <td width="25%"><img src="docs/screenshots/mobile-navigation.png" alt="Mobile navigation drawer listing all seven panes, node reachability, appearance and the operator profile" /></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>Home</sub></td>
+    <td align="center"><sub>Overview</sub></td>
+    <td align="center"><sub>Keyspace</sub></td>
+    <td align="center"><sub>Navigation</sub></td>
+  </tr>
+</table>
+
+---
+
+## What is implemented
+
+- Pure Raft elections, pre-vote, log matching/conflict repair, current-term commit, stable/joint quorum calculations and core leadership-transfer primitives.
+- Request-correlated quorum read-index for RESP reads, with application barriers and stale-leader rejection.
+- Serialized core transitions and side effects, bounded request channels, proposal/read timeouts and operation counters.
+- Segmented log with CRC32C tail recovery, contiguous-batch validation and sync of touched segments; explicitly flushed sled hard state.
+- Sled KV commands and an operation-history hash; a RESP2 command subset and tonic peer RPCs.
+- Configurable local bootstrap of 1–31 voters with separate ports, readiness checks and PID-scoped shutdown.
+- A live operator console, JSON diagnostics, Prometheus text endpoint, browser event history, log inspection and technical documentation.
+- Seeded consensus simulation, a short-history exhaustive checker, regression tests and real four/five-node integration scenarios.
+
+Core membership and snapshot types do not imply complete operational add/remove or dataset snapshot recovery. Dashboard reads inspect **local applied state** and may be stale; use the leader's RESP endpoint for quorum-confirmed KV reads.
+
+```text
+client ──RESP──▶ leader ──▶ raft-core (pure) ──▶ actions
+                              │                    ├─ persist log + hard state (raft-storage)
+                              │                    ├─ AppendEntries to peers   (raft-net, gRPC)
+                              ◀── quorum ack ──────┘
+                      commit ─▶ apply to sled KV (kv-state-machine) ─▶ reply to client
 ```
 
-### Kubernetes / Helm
+## More nodes
+
+Bootstrap five voters in a fresh directory:
 
 ```bash
-helm install raftkv ./helm/raftkv
+./scripts/run_cluster.sh --nodes 5 --run-dir .run-five --no-build
+# After inspection:
+./scripts/stop_cluster.sh --run-dir .run-five
 ```
 
-The chart provides a three-replica StatefulSet, peer discovery service, client service, and persistent volume configuration. Review `helm/raftkv/values.yaml` before using it outside a local cluster.
+Stop the previous cluster first, because these launchers use the same localhost port allocation. Five voters require three acknowledgments and tolerate two unavailable voters; seven require four and tolerate three. More voters replicate the full dataset and do not shard writes.
 
-### Manual configuration
+Use the console's connection controls to inspect additional node API ports. Adding a browser connection records an endpoint; **it does not add a Raft voter**. The launcher rejects changing a persisted cluster's voter count. Safe online membership requires additional runtime/admin integration.
 
-`raftkv-server` accepts a TOML configuration with node identity, Raft and client bind addresses, peers, data directory, election/heartbeat timing, snapshot threshold, and pre-vote settings. See `deploy/node1.toml`, `deploy/node2.toml`, `deploy/node3.toml`, and [HOW_TO_RUN.md](HOW_TO_RUN.md).
+## Protocol and API
 
-### Local operator dashboard
+The RESP command surface includes `PING`, `ECHO`, `QUIT`, `INFO`, `CLUSTER NODES`, `CLUSTER INFO`, `DBSIZE`, `GET`, `MGET`, `EXISTS`, `SET`, `DEL`, `INCR`, `DECR`, `MSET`, `EXPIRE`, `PERSIST` and `FLUSHDB`. `SELECT`, `COMMAND` and `CLIENT` have limited compatibility behavior. The codec supports RESP2 values and inline commands; full RESP3/`HELLO`, Redis transactions, pub/sub and Redis Cluster semantics are absent.
 
-The server also exposes a localhost-only JSON API on `127.0.0.1:8080` for the React/Vite operator console. Start the server, then in a second terminal run:
+Expiry representation exists, but `TTL` returns `-1`, periodic replicated expiration ticks are not scheduled, and expiry replacement semantics need further work. Do not rely on Redis-equivalent TTL behavior.
 
-```bash
-cd ui
-npm install
-npm run dev
-```
+The local HTTP API serves status and data inspection; mutations require a leader. It validates JSON/percent-encoded UTF-8 keys and bounds HTTP request sizes. See [HOW_TO_RUN.md](HOW_TO_RUN.md) for endpoint examples and [ARCHITECTURE.md](ARCHITECTURE.md) for consistency boundaries.
 
-Open http://localhost:5173. The console shows live Raft topology, term and commit progress, the deterministic state hash, and supports real SET, GET, and DELETE operations through the Raft runtime. Override the API bind address with `--ui-listen` when needed; keep it on localhost unless you add authentication and a restricted CORS policy.
+## Workspace and reading guide
 
-## Testing and reproducibility
+| Path | Responsibility |
+| --- | --- |
+| `crates/raft-core` | Pure consensus transitions, log and peer progress |
+| `crates/raft-storage` | Durable log, hard state and snapshot file primitives |
+| `crates/raft-net` | gRPC peer clients/server and protobuf conversion |
+| `crates/kv-state-machine` | Sled KV commands, applied cursor and operation hash |
+| `crates/resp-server` | RESP2 codec, command parsing and dispatch |
+| `crates/raftkv-server` | Runtime, HTTP/RESP/gRPC/metrics listeners |
+| `crates/raftkv-cli` | Operator smoke-test client |
+| `crates/sim-tests`, `crates/linearizability-checker` | Simulation and short-history model checking |
+| `ui` | React/Vite operator console and local node gateway |
+| `proto`, `deploy`, `helm`, `grafana` | Protocol contracts and deployment/observability examples |
+
+| Document | What it answers |
+| --- | --- |
+| [HOW_TO_RUN.md](HOW_TO_RUN.md) | How to launch, connect, inspect, stop and troubleshoot |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | Components, request flow, persistence and efficiency |
+| [RAFT_NOTES.md](RAFT_NOTES.md) | Consensus concepts mapped to source and invariants |
+| [PROJECT_REPORT.md](PROJECT_REPORT.md) | Feature maturity, confirmed validation and prioritized technical roadmap |
+| [CHANGELOG.md](CHANGELOG.md) | Delivered changes and remaining integration work |
+| [ui/README.md](ui/README.md) | Console usage, profile semantics and console tests |
+
+## Validation
 
 ```bash
 cargo fmt --check
 cargo test --workspace
-cargo test -p sim-tests
-cargo test -p linearizability-checker
 cargo clippy --workspace --all-targets -- -D warnings
+python3 scripts/tests/test_launcher.py
+python3 scripts/tests/live_cluster.py --nodes 4
+python3 scripts/tests/live_cluster.py --nodes 5
+npm --prefix ui test
+npm --prefix ui run build
+npm --prefix ui run test:e2e     # Playwright: sign-in, navigation, themes, writes, 320–1440px layouts
 ```
 
-The simulator is designed to replay a run from the same seed. The separation between `raft-core` and the runtime also enables focused unit tests for election, log matching, quorum commit, joint consensus, snapshots, and read-index behavior.
+The live integration suite uses real processes and covers election, replication, quorum reads, failover, isolated-leader read rejection, clean restarts, deletion and hash agreement. It is not a power-loss/partial-apply crash harness. The simulator exercises in-memory consensus schedules; `scripts/jepsen_run.sh` skips unless an external `JEPSEN_DIR` is provided.
 
-## Supported client commands
+## Deployment and limitations
 
-The current command surface includes `PING`, `ECHO`, `QUIT`, `SELECT`, `COMMAND`, `INFO`, `CLUSTER NODES`, `CLUSTER INFO`, `DBSIZE`, `GET`, `MGET`, `EXISTS`, `SET`, `DEL`, `INCR`, `DECR`, `MSET`, `EXPIRE`, `PERSIST`, and `FLUSHDB`.
+Docker Compose and Helm examples are available. Helm derives unique node IDs from StatefulSet ordinals and permits parallel peer bootstrap; render/live Kubernetes validation is still required. Client services distribute connections across followers as well as leaders, so client routing must handle leadership explicitly. Keep unauthenticated operator APIs on loopback or an authenticated restricted network.
 
-The backing state machine has TTL support; the `TTL` command still reports `-1` and is listed on the project backlog.
+Remaining priorities are transactional KV application and recovery, complete snapshots, robust online membership, full expiry semantics, security, and reproducible benchmarks/soak testing. Client timeout outcomes are ambiguous and retries are not exactly once. See the report before relying on the project for durable application data.
 
-## Observability
+## Contributing and license
 
-Each node exposes Prometheus text metrics on its configured metrics port:
-
-```bash
-curl http://127.0.0.1:9101/metrics
-```
-
-Import `grafana/dashboards/raftkv.json` for a reference dashboard and review `grafana/alerting/alerts.yml` for example alerts.
-
-## Current limitations and roadmap
-
-The project intentionally documents its unfinished edges:
-
-- TLS/mTLS, ACLs, and client authentication are not complete.
-- Snapshot transfer currently passes an opaque payload rather than streaming chunks.
-- Membership-change plumbing is not yet exposed as a complete gRPC administration workflow.
-- Jepsen-scale fault injection, fuzzing, long-running soak tests, and benchmark suites remain future work.
-- Backup/restore tooling and automatic follower redirect handling are not complete.
-
-See [CHANGELOG.md](CHANGELOG.md) for the maintained implementation checklist.
-
-## Contributing
-
-Small, focused pull requests are welcome. For consensus changes, include the invariant being protected, a deterministic test or simulator scenario where possible, and the failure mode the test covers. Run formatting, tests, and Clippy before opening a pull request.
-
-## License
-
-Apache-2.0. See the workspace metadata and repository history for details.
+For consensus changes, identify the invariant and add a regression covering the failure schedule. Run relevant checks and report limitations accurately. Workspace metadata declares Apache-2.0; see repository history for licensing details.

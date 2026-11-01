@@ -1,0 +1,89 @@
+{
+  "version": 1,
+  "project": {
+    "name": "RaftKV Console",
+    "productType": "Local distributed key-value store operator console",
+    "stack": [
+      "React 19",
+      "Vite 8",
+      "CSS custom properties",
+      "lucide-react"
+    ]
+  },
+  "sources": {
+    "tokens": [
+      "ui/src/styles.css"
+    ],
+    "components": [
+      "ui/src/components.jsx",
+      "ui/src/CommandMenu.jsx"
+    ],
+    "assets": [
+      "ui/public/logo.png"
+    ],
+    "instructions": []
+  },
+  "design": {
+    "colorMode": "dark with light appearance",
+    "colors": {
+      "background": "#101923",
+      "panel": "#15222e",
+      "surface": "#192a38",
+      "text": "#e5edf4",
+      "muted": "#a1b2c3",
+      "accent": "#65c9d4"
+    },
+    "typography": {
+      "family": "Avenir Next, Avenir, Segoe UI, sans-serif",
+      "body": "14px",
+      "helpers": "12px minimum",
+      "navigation": "14px",
+      "headings": "17px\u201332px"
+    },
+    "spacing": {},
+    "radius": {
+      "controls": "5\u20136px",
+      "panels": "7\u20139px"
+    },
+    "shadows": {},
+    "motion": {
+      "page": "180ms opacity and translateY",
+      "controls": "150\u2013160ms explicit transitions",
+      "reducedMotion": "disable animations and transitions"
+    },
+    "density": "compact and readable"
+  },
+  "components": {
+    "installed": [],
+    "preferredPrimitives": [
+      "Panel",
+      "Pill",
+      "Metric",
+      "Detail",
+      "EventList",
+      "CodeBlock",
+      "native dialog"
+    ],
+    "patterns": []
+  },
+  "constraints": {
+    "must": [
+      "Preserve existing blue-gray/cyan console identity and diagnostic tools",
+      "Show real runtime observations only",
+      "Use a clearly labeled local profile, with unauthenticated API boundary visible",
+      "Readable labels, visible keyboard focus, responsive layouts and reduced motion"
+    ],
+    "avoid": [
+      "Simulated live metrics",
+      "Password UI without backend authentication",
+      "Unnecessary component libraries",
+      "Decorative gradients and continuous decorative animation"
+    ]
+  },
+  "decisions": [
+    "2026-10-16: Preserve current design and enlarge typography as requested. Add local sign-in, home, native command navigation, and compact mobile menu.",
+    "21st catalog search reviewed Dashboard Sidebar and Commands Menu patterns. Existing project primitives and native dialog fit the current framework without adding dependencies."
+  ],
+  "evidence": [],
+  "generatedAt": "2026-10-16T08:23:51.772Z"
+}
