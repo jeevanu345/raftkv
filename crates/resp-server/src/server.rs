@@ -21,7 +21,10 @@ pub async fn serve<H: CommandHandler + 'static>(
     loop {
         let (sock, peer) = match listener.accept().await {
             Ok(x) => x,
-            Err(e) => { tracing::warn!(error = %e, "accept failed"); continue; }
+            Err(e) => {
+                tracing::warn!(error = %e, "accept failed");
+                continue;
+            }
         };
         let handler = handler.clone();
         tokio::spawn(async move {

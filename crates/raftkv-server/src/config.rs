@@ -71,9 +71,63 @@ fn default_ui_listen() -> String {
 }
 
 impl ServerConfig {
+    /// Reject configurations that cannot safely drive the runtime.
+    pub fn validate(&self) -> anyhow::Result<()> {
+        anyhow::ensure!(self.id > 0, "node id must be positive");
+        anyhow::ensure!(self.tick_ms > 0, "tick_ms must be positive");
+        anyhow::ensure!(
+            self.heartbeat_ms >= self.tick_ms,
+            "heartbeat_ms must be >= tick_ms"
+        );
+        anyhow::ensure!(
+            self.election_timeout_ms > self.heartbeat_ms,
+            "election timeout must exceed heartbeat interval"
+        );
+        anyhow::ensure!(
+            self.snapshot_entries_threshold > 0,
+            "snapshot threshold must be positive"
+        );
+        anyhow::ensure!(
+            !self.peers.is_empty(),
+            "at least one bootstrap voter is required"
+        );
+        let mut ids = std::collections::BTreeSet::new();
+        for peer in &self.peers {
+            anyhow::ensure!(
+                peer.id > 0 && ids.insert(peer.id),
+                "peer ids must be positive and unique"
+            );
+            anyhow::ensure!(!peer.raft_addr.is_empty(), "peer address cannot be empty");
+        }
+        anyhow::ensure!(
+            ids.contains(&self.id),
+            "local node must be a bootstrap voter"
+        );
+        Ok(())
+    }
+
     /// Load config from a TOML file.
     pub fn from_toml_file(path: &std::path::Path) -> anyhow::Result<Self> {
         let s = std::fs::read_to_string(path)?;
         Ok(toml::from_str(&s)?)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn configuration_rejects_invalid_timers_and_membership() {
+        let mut cfg = ServerConfig::default();
+        assert!(cfg.validate().is_ok());
+        cfg.tick_ms = 0;
+        assert!(cfg.validate().is_err());
+        cfg.tick_ms = 10;
+        cfg.peers.push(cfg.peers[0].clone());
+        assert!(cfg.validate().is_err());
+        cfg.peers.pop();
+        cfg.id = 2;
+        assert!(cfg.validate().is_err());
     }
 }

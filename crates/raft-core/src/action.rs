@@ -102,7 +102,7 @@ pub enum MetricEvent {
         /// Won-in term.
         term: Term,
     },
-    /// AppendEntries was rejected by a follower.
+    /// `AppendEntries` was rejected by a follower.
     AppendRejected {
         /// Peer rejecting.
         from: NodeId,

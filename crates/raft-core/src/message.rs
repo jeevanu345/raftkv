@@ -14,7 +14,7 @@ pub type RequestId = u64;
 /// Internal Raft messages.
 #[derive(Debug, Clone)]
 pub enum Message {
-    /// AppendEntries (with optional heartbeat = empty entries).
+    /// `AppendEntries` (with optional heartbeat = empty entries).
     AppendEntries {
         /// Sender (leader).
         from: NodeId,
@@ -31,7 +31,7 @@ pub enum Message {
         /// Trace correlation id.
         request_id: RequestId,
     },
-    /// AppendEntries response.
+    /// `AppendEntries` response.
     AppendEntriesResponse {
         /// Responder.
         from: NodeId,
@@ -48,7 +48,7 @@ pub enum Message {
         /// Trace correlation id.
         request_id: RequestId,
     },
-    /// RequestVote (or PreVote when `pre_vote` is true).
+    /// `RequestVote` (or `PreVote` when `pre_vote` is true).
     RequestVote {
         /// Sender (candidate).
         from: NodeId,
@@ -58,12 +58,12 @@ pub enum Message {
         last_log_index: LogIndex,
         /// Candidate's last log term.
         last_log_term: Term,
-        /// True if this is a PreVote (does not bump receiver's term).
+        /// True if this is a `PreVote` (does not bump receiver's term).
         pre_vote: bool,
         /// Trace correlation id.
         request_id: RequestId,
     },
-    /// RequestVote response.
+    /// `RequestVote` response.
     RequestVoteResponse {
         /// Responder.
         from: NodeId,
@@ -76,7 +76,7 @@ pub enum Message {
         /// Trace correlation id.
         request_id: RequestId,
     },
-    /// InstallSnapshot RPC (chunked transfer is the runtime's responsibility;
+    /// `InstallSnapshot` RPC (chunked transfer is the runtime's responsibility;
     /// the core sees a single logical message per snapshot).
     InstallSnapshot {
         /// Sender (leader).
@@ -92,7 +92,7 @@ pub enum Message {
         /// Trace correlation id.
         request_id: RequestId,
     },
-    /// InstallSnapshot response.
+    /// `InstallSnapshot` response.
     InstallSnapshotResponse {
         /// Responder.
         from: NodeId,

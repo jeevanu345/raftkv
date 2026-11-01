@@ -3,8 +3,8 @@
 
 use std::path::Path;
 
-use raft_core::state::HardState;
 use raft_core::log::{LogIndex, Term};
+use raft_core::state::HardState;
 
 use crate::error::StorageError;
 
@@ -20,7 +20,10 @@ pub struct MetaStore {
 impl MetaStore {
     /// Open or create the metadata db at `path`.
     pub fn open<P: AsRef<Path>>(path: P) -> Result<Self, StorageError> {
-        let db = sled::Config::new().path(path).flush_every_ms(Some(50)).open()?;
+        let db = sled::Config::new()
+            .path(path)
+            .flush_every_ms(Some(50))
+            .open()?;
         Ok(Self { db })
     }
 

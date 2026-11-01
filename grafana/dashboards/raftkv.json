@@ -1,48 +1,467 @@
 {
-  "title": "raftkv",
+  "title": "RaftKV consensus and runtime",
   "uid": "raftkv-overview",
   "schemaVersion": 38,
-  "tags": ["raftkv", "raft"],
+  "version": 1,
+  "tags": [
+    "raftkv",
+    "raft"
+  ],
   "timezone": "browser",
-  "time": { "from": "now-1h", "to": "now" },
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
   "refresh": "10s",
+  "__inputs": [
+    {
+      "name": "DS_PROMETHEUS",
+      "label": "Prometheus",
+      "type": "datasource",
+      "pluginId": "prometheus",
+      "pluginName": "Prometheus"
+    }
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "node",
+        "type": "query",
+        "label": "Node",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${DS_PROMETHEUS}"
+        },
+        "query": "label_values(raftkv_term, node_id)",
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".*",
+        "refresh": 1,
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        }
+      }
+    ]
+  },
   "panels": [
     {
-      "type": "stat",
-      "title": "Cluster leader",
       "id": 1,
+      "title": "Reported leaders (local role beliefs)",
+      "type": "stat",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
       "targets": [
-        { "expr": "max by(node_id) (raftkv_role{role=\"leader\"})", "refId": "A" }
-      ]
+        {
+          "expr": "sum(raftkv_is_leader)",
+          "refId": "A",
+          "legendFormat": "leaders"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none"
+      }
     },
     {
-      "type": "timeseries",
-      "title": "Term",
       "id": 2,
-      "targets": [{ "expr": "raftkv_current_term", "refId": "A" }]
+      "title": "Storage healthy (1 = healthy)",
+      "type": "stat",
+      "gridPos": {
+        "x": 6,
+        "y": 0,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "targets": [
+        {
+          "expr": "raftkv_storage_healthy{node_id=~\"$node\"}",
+          "refId": "A",
+          "legendFormat": "node {{node_id}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none"
+      }
     },
     {
-      "type": "timeseries",
-      "title": "Commit / Applied indices",
       "id": 3,
+      "title": "Local keys",
+      "type": "stat",
+      "gridPos": {
+        "x": 12,
+        "y": 0,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
       "targets": [
-        { "expr": "raftkv_commit_index", "refId": "A" },
-        { "expr": "raftkv_applied_index", "refId": "B" }
-      ]
+        {
+          "expr": "raftkv_keys{node_id=~\"$node\"}",
+          "refId": "A",
+          "legendFormat": "node {{node_id}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none"
+      }
     },
     {
-      "type": "timeseries",
-      "title": "Append latency p99 (ms)",
       "id": 4,
+      "title": "Runtime uptime",
+      "type": "stat",
+      "gridPos": {
+        "x": 18,
+        "y": 0,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
       "targets": [
-        { "expr": "histogram_quantile(0.99, rate(raftkv_append_latency_ms_bucket[1m]))", "refId": "A" }
-      ]
+        {
+          "expr": "raftkv_uptime_seconds{node_id=~\"$node\"}",
+          "refId": "A",
+          "legendFormat": "node {{node_id}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none"
+      }
     },
     {
-      "type": "timeseries",
-      "title": "Election count",
       "id": 5,
-      "targets": [{ "expr": "rate(raftkv_election_started_total[5m])", "refId": "A" }]
+      "title": "Election term",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 4,
+        "w": 12,
+        "h": 7
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "targets": [
+        {
+          "expr": "raftkv_term{node_id=~\"$node\"}",
+          "refId": "A",
+          "legendFormat": "node {{node_id}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 6,
+      "title": "Log / commit / applied indices",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 12,
+        "y": 4,
+        "w": 12,
+        "h": 7
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "targets": [
+        {
+          "expr": "raftkv_last_log_index{node_id=~\"$node\"}",
+          "refId": "A",
+          "legendFormat": "log {{node_id}}"
+        },
+        {
+          "expr": "raftkv_commit_index{node_id=~\"$node\"}",
+          "refId": "B",
+          "legendFormat": "commit {{node_id}}"
+        },
+        {
+          "expr": "raftkv_applied_index{node_id=~\"$node\"}",
+          "refId": "C",
+          "legendFormat": "applied {{node_id}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 7,
+      "title": "Raft message attempts / responses",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 11,
+        "w": 12,
+        "h": 7
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "targets": [
+        {
+          "expr": "rate(raftkv_raft_messages_sent_total{node_id=~\"$node\"}[1m])",
+          "refId": "A",
+          "legendFormat": "sent {{node_id}}"
+        },
+        {
+          "expr": "rate(raftkv_raft_messages_received_total{node_id=~\"$node\"}[1m])",
+          "refId": "B",
+          "legendFormat": "received {{node_id}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 8,
+      "title": "Proposal outcomes",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 12,
+        "y": 11,
+        "w": 12,
+        "h": 7
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "targets": [
+        {
+          "expr": "rate(raftkv_proposals_received_total{node_id=~\"$node\"}[1m])",
+          "refId": "A",
+          "legendFormat": "received {{node_id}}"
+        },
+        {
+          "expr": "rate(raftkv_proposals_committed_total{node_id=~\"$node\"}[1m])",
+          "refId": "B",
+          "legendFormat": "committed {{node_id}}"
+        },
+        {
+          "expr": "rate(raftkv_proposal_failures_total{node_id=~\"$node\"}[1m])",
+          "refId": "C",
+          "legendFormat": "failed {{node_id}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 9,
+      "title": "Uncommitted / unapplied entries",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 18,
+        "w": 12,
+        "h": 7
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "targets": [
+        {
+          "expr": "raftkv_last_log_index{node_id=~\"$node\"} - raftkv_commit_index{node_id=~\"$node\"}",
+          "refId": "A",
+          "legendFormat": "uncommitted {{node_id}}"
+        },
+        {
+          "expr": "raftkv_commit_index{node_id=~\"$node\"} - raftkv_applied_index{node_id=~\"$node\"}",
+          "refId": "B",
+          "legendFormat": "unapplied {{node_id}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 10,
+      "title": "Elections / append rejections / storage errors",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 12,
+        "y": 18,
+        "w": 12,
+        "h": 7
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "targets": [
+        {
+          "expr": "rate(raftkv_elections_started_total{node_id=~\"$node\"}[5m])",
+          "refId": "A",
+          "legendFormat": "elections {{node_id}}"
+        },
+        {
+          "expr": "rate(raftkv_append_rejections_total{node_id=~\"$node\"}[5m])",
+          "refId": "B",
+          "legendFormat": "rejections {{node_id}}"
+        },
+        {
+          "expr": "rate(raftkv_storage_errors_total{node_id=~\"$node\"}[5m])",
+          "refId": "C",
+          "legendFormat": "storage errors {{node_id}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
     }
   ]
 }

@@ -18,8 +18,8 @@ pub mod pb {
     }
 }
 
-pub mod convert;
 pub mod client;
+pub mod convert;
 pub mod server;
 
 pub use client::PeerClient;

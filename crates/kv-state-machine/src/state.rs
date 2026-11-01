@@ -6,6 +6,7 @@
 //! * `meta`: bookkeeping (state hash, applied index)
 
 use std::path::Path;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use parking_lot::Mutex;
 use raft_core::log::LogIndex;
@@ -36,6 +37,7 @@ pub struct KvStateMachine {
     ttl: sled::Tree,
     meta: sled::Tree,
     hash: Mutex<[u8; 32]>,
+    key_count: AtomicUsize,
 }
 
 fn ttl_key(expire_at_ms: u64, key: &[u8]) -> Vec<u8> {
@@ -54,6 +56,7 @@ impl KvStateMachine {
             .open()?;
         let kv = db.open_tree("kv")?;
         let ttl = db.open_tree("ttl")?;
+        let key_count = AtomicUsize::new(kv.len());
         let meta = db.open_tree("meta")?;
         let hash = match meta.get(META_HASH)? {
             Some(b) if b.len() == 32 => {
@@ -69,6 +72,7 @@ impl KvStateMachine {
             ttl,
             meta,
             hash: Mutex::new(hash),
+            key_count,
         })
     }
 
@@ -95,6 +99,15 @@ impl KvStateMachine {
         *self.hash.lock()
     }
 
+    /// Advance over a committed no-op or membership entry without changing
+    /// the command-history hash. Replay must never move this pointer backward.
+    pub fn advance_applied_index(&self, index: LogIndex) -> Result<(), StateMachineError> {
+        if index > self.applied_index() {
+            self.meta.insert(META_APPLIED, &index.to_le_bytes())?;
+        }
+        Ok(())
+    }
+
     /// Apply a deserialized command. Returns the response.
     pub fn apply(
         &self,
@@ -107,7 +120,9 @@ impl KvStateMachine {
                 value,
                 expire_at_ms,
             } => {
-                self.kv.insert(key.as_slice(), value.as_slice())?;
+                if self.kv.insert(key.as_slice(), value.as_slice())?.is_none() {
+                    self.key_count.fetch_add(1, Ordering::Relaxed);
+                }
                 if let Some(t) = expire_at_ms {
                     self.ttl.insert(ttl_key(*t, key), &[] as &[u8])?;
                 }
@@ -119,6 +134,7 @@ impl KvStateMachine {
                 for k in keys {
                     if self.kv.remove(k.as_slice())?.is_some() {
                         n += 1;
+                        self.key_count.fetch_sub(1, Ordering::Relaxed);
                     }
                     self.update_hash(b"D", k, &[]);
                 }
@@ -136,7 +152,9 @@ impl KvStateMachine {
                     .unwrap_or(0);
                 let new = cur.saturating_add(*delta);
                 let s = new.to_string();
-                self.kv.insert(key.as_slice(), s.as_bytes())?;
+                if self.kv.insert(key.as_slice(), s.as_bytes())?.is_none() {
+                    self.key_count.fetch_add(1, Ordering::Relaxed);
+                }
                 self.update_hash(b"I", key, s.as_bytes());
                 Response::Int(new)
             }
@@ -172,13 +190,16 @@ impl KvStateMachine {
             }
             Command::MSet { pairs } => {
                 for (k, v) in pairs {
-                    self.kv.insert(k.as_slice(), v.as_slice())?;
+                    if self.kv.insert(k.as_slice(), v.as_slice())?.is_none() {
+                        self.key_count.fetch_add(1, Ordering::Relaxed);
+                    }
                     self.update_hash(b"M", k, v);
                 }
                 Response::Ok
             }
             Command::FlushDb => {
                 self.kv.clear()?;
+                self.key_count.store(0, Ordering::Relaxed);
                 self.ttl.clear()?;
                 *self.hash.lock() = [0u8; 32];
                 Response::Ok
@@ -225,11 +246,11 @@ impl KvStateMachine {
 
     /// DBSIZE.
     pub fn len(&self) -> usize {
-        self.kv.len()
+        self.key_count.load(Ordering::Relaxed)
     }
     /// Whether store is empty.
     pub fn is_empty(&self) -> bool {
-        self.kv.is_empty()
+        self.len() == 0
     }
 
     /// Force a sled flush (durability).
@@ -250,7 +271,9 @@ impl KvStateMachine {
         for tk in to_delete {
             if tk.len() >= 8 {
                 let key = &tk[8..];
-                self.kv.remove(key)?;
+                if self.kv.remove(key)?.is_some() {
+                    self.key_count.fetch_sub(1, Ordering::Relaxed);
+                }
                 self.update_hash(b"X", key, &[]);
             }
             self.ttl.remove(tk)?;
@@ -305,13 +328,76 @@ mod tests {
     }
 
     #[test]
+    fn metadata_entries_advance_without_mutating_hash() {
+        let dir = tempdir().unwrap();
+        let sm = KvStateMachine::open(dir.path()).unwrap();
+        sm.advance_applied_index(3).unwrap();
+        sm.advance_applied_index(1).unwrap();
+        assert_eq!(sm.applied_index(), 3);
+        assert_eq!(sm.state_hash(), [0; 32]);
+    }
+
+    #[test]
+    fn cached_count_tracks_mutations_expiry_and_reopen() {
+        let dir = tempdir().unwrap();
+        {
+            let sm = KvStateMachine::open(dir.path()).unwrap();
+            sm.apply(
+                1,
+                &Command::MSet {
+                    pairs: vec![
+                        (b"a".to_vec(), b"1".to_vec()),
+                        (b"a".to_vec(), b"2".to_vec()),
+                        (b"b".to_vec(), b"3".to_vec()),
+                    ],
+                },
+            )
+            .unwrap();
+            assert_eq!(sm.len(), 2);
+            sm.apply(
+                2,
+                &Command::Incr {
+                    key: b"c".to_vec(),
+                    delta: 1,
+                },
+            )
+            .unwrap();
+            sm.apply(
+                3,
+                &Command::Set {
+                    key: b"c".to_vec(),
+                    value: b"4".to_vec(),
+                    expire_at_ms: Some(10),
+                },
+            )
+            .unwrap();
+            assert_eq!(sm.len(), 3);
+            sm.apply(
+                4,
+                &Command::Del {
+                    keys: vec![b"a".to_vec(), b"a".to_vec()],
+                },
+            )
+            .unwrap();
+            sm.apply(5, &Command::Tick { now_ms: 10 }).unwrap();
+            assert_eq!(sm.len(), 1);
+            assert_eq!(sm.len(), sm.keys().unwrap().len());
+            sm.flush().unwrap();
+        }
+        let sm = KvStateMachine::open(dir.path()).unwrap();
+        assert_eq!(sm.len(), 1);
+        sm.apply(6, &Command::FlushDb).unwrap();
+        assert!(sm.is_empty());
+    }
+
+    #[test]
     fn determinism() {
         // Same command sequence on two state machines yields the same hash.
         let d1 = tempdir().unwrap();
         let d2 = tempdir().unwrap();
         let s1 = KvStateMachine::open(d1.path()).unwrap();
         let s2 = KvStateMachine::open(d2.path()).unwrap();
-        let cmds = vec![
+        let cmds = [
             Command::Set {
                 key: b"x".to_vec(),
                 value: b"1".to_vec(),

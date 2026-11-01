@@ -29,16 +29,22 @@ impl SnapshotStore {
     /// Open or create the snapshot directory.
     pub fn open<P: AsRef<Path>>(path: P) -> Result<Self, StorageError> {
         fs::create_dir_all(&path)?;
-        Ok(Self { dir: path.as_ref().to_path_buf() })
+        Ok(Self {
+            dir: path.as_ref().to_path_buf(),
+        })
     }
 
     /// Path of the latest snapshot, if any.
     pub fn latest(&self) -> Option<(SnapshotMeta, PathBuf)> {
-        let mut entries: Vec<_> = fs::read_dir(&self.dir).ok()?.filter_map(|e| e.ok()).collect();
+        let mut entries: Vec<_> = fs::read_dir(&self.dir)
+            .ok()?
+            .filter_map(|e| e.ok())
+            .collect();
         entries.sort_by_key(|e| e.file_name());
-        let last = entries.into_iter().rev().find(|e| {
-            e.path().extension().and_then(|s| s.to_str()) == Some("snap")
-        })?;
+        let last = entries
+            .into_iter()
+            .rev()
+            .find(|e| e.path().extension().and_then(|s| s.to_str()) == Some("snap"))?;
         let meta_path = last.path().with_extension("meta");
         let mut buf = Vec::new();
         File::open(&meta_path).ok()?.read_to_end(&mut buf).ok()?;
@@ -48,12 +54,25 @@ impl SnapshotStore {
 
     /// Begin writing a snapshot to a temp file. Returns a handle.
     pub fn begin_write(&self, meta: &SnapshotMeta) -> Result<SnapshotWriter, StorageError> {
-        let stem = format!("{:020}-{}", meta.last_included_index, meta.last_included_term);
+        let stem = format!(
+            "{:020}-{}",
+            meta.last_included_index, meta.last_included_term
+        );
         let snap_path = self.dir.join(format!("{stem}.snap"));
         let tmp_path = self.dir.join(format!("{stem}.snap.tmp"));
         let meta_path = self.dir.join(format!("{stem}.meta"));
-        let file = OpenOptions::new().create(true).truncate(true).write(true).open(&tmp_path)?;
-        Ok(SnapshotWriter { tmp_path, snap_path, meta_path, meta: meta.clone(), file })
+        let file = OpenOptions::new()
+            .create(true)
+            .truncate(true)
+            .write(true)
+            .open(&tmp_path)?;
+        Ok(SnapshotWriter {
+            tmp_path,
+            snap_path,
+            meta_path,
+            meta: meta.clone(),
+            file,
+        })
     }
 
     /// List snapshots (oldest first).
@@ -71,7 +90,9 @@ impl SnapshotStore {
     /// Remove all but the most recent N snapshots.
     pub fn keep_last(&self, n: usize) -> Result<(), StorageError> {
         let snaps = self.list();
-        if snaps.len() <= n { return Ok(()); }
+        if snaps.len() <= n {
+            return Ok(());
+        }
         let drop_n = snaps.len() - n;
         for p in &snaps[..drop_n] {
             let _ = fs::remove_file(p);
@@ -102,7 +123,8 @@ impl SnapshotWriter {
         self.file.sync_all()?;
         // Write meta first (also via temp+rename for atomicity).
         let meta_tmp = self.meta_path.with_extension("meta.tmp");
-        let bytes = bincode::serialize(&self.meta).map_err(|e| StorageError::Codec(e.to_string()))?;
+        let bytes =
+            bincode::serialize(&self.meta).map_err(|e| StorageError::Codec(e.to_string()))?;
         std::fs::write(&meta_tmp, bytes)?;
         std::fs::rename(&meta_tmp, &self.meta_path)?;
         std::fs::rename(&self.tmp_path, &self.snap_path)?;

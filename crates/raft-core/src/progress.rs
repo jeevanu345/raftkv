@@ -3,9 +3,9 @@
 //! Mirrors the etcd/raft `Progress` design. Each peer is in exactly one of
 //! three states:
 //!
-//! * `Probe`     — slow, one-at-a-time AppendEntries until a match is found.
-//! * `Replicate` — fast pipelined AppendEntries.
-//! * `Snapshot`  — awaiting completion of an InstallSnapshot.
+//! * `Probe`     — slow, one-at-a-time `AppendEntries` until a match is found.
+//! * `Replicate` — fast pipelined `AppendEntries`.
+//! * `Snapshot`  — awaiting completion of an `InstallSnapshot`.
 
 use crate::log::LogIndex;
 use crate::node::NodeId;
@@ -18,7 +18,7 @@ pub enum ProgressState {
     Probe,
     /// Pipelining AEs.
     Replicate,
-    /// Waiting for an InstallSnapshot to complete.
+    /// Waiting for an `InstallSnapshot` to complete.
     Snapshot,
 }
 
@@ -44,7 +44,7 @@ pub struct Progress {
 
 impl Progress {
     /// Create a fresh progress with `next_index = last_log_index + 1`.
-    pub fn new(last_log_index: LogIndex) -> Self {
+    pub const fn new(last_log_index: LogIndex) -> Self {
         Self {
             next_index: last_log_index + 1,
             match_index: 0,
@@ -57,7 +57,7 @@ impl Progress {
     }
 
     /// Note: use this when (re)becoming leader to start cautiously.
-    pub fn reset_to_probe(&mut self, last_log_index: LogIndex) {
+    pub const fn reset_to_probe(&mut self, last_log_index: LogIndex) {
         self.next_index = last_log_index + 1;
         self.match_index = 0;
         self.state = ProgressState::Probe;
@@ -65,12 +65,14 @@ impl Progress {
         self.pending_snapshot = None;
     }
 
-    /// Apply a successful AppendEntries response.
-    pub fn maybe_update(&mut self, last_log_index_on_peer: LogIndex) -> bool {
+    /// Apply a successful `AppendEntries` response.
+    pub const fn maybe_update(&mut self, last_log_index_on_peer: LogIndex) -> bool {
         let updated = if last_log_index_on_peer > self.match_index {
             self.match_index = last_log_index_on_peer;
             true
-        } else { false };
+        } else {
+            false
+        };
         if last_log_index_on_peer + 1 > self.next_index {
             self.next_index = last_log_index_on_peer + 1;
         }
@@ -80,7 +82,7 @@ impl Progress {
         updated
     }
 
-    /// Apply a rejected AppendEntries response with conflict hints.
+    /// Apply a rejected `AppendEntries` response with conflict hints.
     /// Returns true if `next_index` was decreased.
     pub fn maybe_decr_to(&mut self, conflict_index: LogIndex) -> bool {
         let target = conflict_index.max(1);
@@ -95,13 +97,13 @@ impl Progress {
     }
 
     /// Mark a snapshot as in flight.
-    pub fn become_snapshot(&mut self, snap_index: LogIndex) {
+    pub const fn become_snapshot(&mut self, snap_index: LogIndex) {
         self.state = ProgressState::Snapshot;
         self.pending_snapshot = Some(snap_index);
         self.inflight = 0;
     }
 
-    /// Snapshot finished installing — resume probing from snap_index + 1.
+    /// Snapshot finished installing — resume probing from `snap_index` + 1.
     pub fn snapshot_finished(&mut self, snap_index: LogIndex) {
         self.match_index = self.match_index.max(snap_index);
         self.next_index = snap_index + 1;
@@ -109,8 +111,8 @@ impl Progress {
         self.pending_snapshot = None;
     }
 
-    /// Whether we may send an AppendEntries to this peer right now.
-    pub fn can_send(&self, max_inflight: u32) -> bool {
+    /// Whether we may send an `AppendEntries` to this peer right now.
+    pub const fn can_send(&self, max_inflight: u32) -> bool {
         match self.state {
             ProgressState::Snapshot => false,
             ProgressState::Probe => self.inflight == 0,
@@ -130,18 +132,26 @@ impl ProgressSet {
     /// Insert or refresh entries for a list of voters.
     pub fn ensure(&mut self, ids: &[NodeId], last_log_index: LogIndex) {
         for &id in ids {
-            self.peers.entry(id).or_insert_with(|| Progress::new(last_log_index));
+            self.peers
+                .entry(id)
+                .or_insert_with(|| Progress::new(last_log_index));
         }
     }
 
     /// Borrow a peer's progress mutably.
-    pub fn get_mut(&mut self, id: NodeId) -> Option<&mut Progress> { self.peers.get_mut(&id) }
+    pub fn get_mut(&mut self, id: NodeId) -> Option<&mut Progress> {
+        self.peers.get_mut(&id)
+    }
 
     /// Borrow a peer's progress.
-    pub fn get(&self, id: NodeId) -> Option<&Progress> { self.peers.get(&id) }
+    pub fn get(&self, id: NodeId) -> Option<&Progress> {
+        self.peers.get(&id)
+    }
 
     /// Iterate all peers.
-    pub fn iter(&self) -> impl Iterator<Item = (&NodeId, &Progress)> { self.peers.iter() }
+    pub fn iter(&self) -> impl Iterator<Item = (&NodeId, &Progress)> {
+        self.peers.iter()
+    }
 
     /// Drop peers no longer in the cluster.
     pub fn retain_in(&mut self, ids: &[NodeId]) {

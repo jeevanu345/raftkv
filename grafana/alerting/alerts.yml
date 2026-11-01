@@ -1,37 +1,50 @@
+# Example rules for ONE RaftKV consensus group per Prometheus scrape scope.
+# Add a cluster/job selector before combining multiple independent groups.
 groups:
   - name: raftkv-availability
-    interval: 30s
+    interval: 15s
     rules:
-      - alert: RaftKvNoLeader
-        expr: max(raftkv_role{role="leader"}) == 0
+      - alert: RaftKvNoReportedLeader
+        expr: sum(raftkv_is_leader) == 0 or absent(raftkv_is_leader)
         for: 30s
         labels:
           severity: critical
         annotations:
-          summary: "raftkv cluster has no leader"
-          runbook: "Check node connectivity, election timeouts, and recent term bumps."
+          summary: "No RaftKV process reports leadership, or telemetry is missing"
+          description: "Check scrape health, peer connectivity and election logs. A reported leader alone does not prove a fresh quorum."
 
-      - alert: RaftKvFlappingLeader
-        expr: rate(raftkv_election_started_total[5m]) > 0.5
+      - alert: RaftKvStorageFailed
+        expr: raftkv_storage_healthy == 0
+        for: 15s
+        labels:
+          severity: critical
+        annotations:
+          summary: "RaftKV node {{ $labels.node_id }} has stopped after a storage failure"
+          description: "The runtime refuses dependent acknowledgments and client operations. Inspect the node API health error and disk before restarting."
+
+      - alert: RaftKvFrequentElections
+        expr: rate(raftkv_elections_started_total[5m]) > 0.1
         for: 5m
         labels:
           severity: warning
         annotations:
-          summary: "Excessive leader elections (>0.5/s sustained)"
-          runbook: "Investigate network or CPU pressure; consider increasing heartbeat / election timers."
+          summary: "Frequent elections on RaftKV node {{ $labels.node_id }}"
+          description: "Investigate network, disk or runtime pressure and timer configuration. This counts pre-vote rounds as well as elections."
 
-      - alert: RaftKvCommitStalled
-        expr: increase(raftkv_commit_index[2m]) == 0 and on() max(raftkv_role{role="leader"}) == 1
+      - alert: RaftKvCommitBacklogStalled
+        expr: (raftkv_last_log_index - raftkv_commit_index > 0) and (changes(raftkv_commit_index[2m]) == 0) and (raftkv_is_leader == 1)
         for: 2m
         labels:
           severity: warning
         annotations:
-          summary: "Commit index has not advanced in 2 minutes despite a leader being present"
+          summary: "Leader {{ $labels.node_id }} has uncommitted entries without commit progress"
+          description: "Check majority availability and replication. Idle clusters without backlog do not trigger this rule."
 
-      - alert: RaftKvHighAppendLatencyP99
-        expr: histogram_quantile(0.99, rate(raftkv_append_latency_ms_bucket[5m])) > 50
-        for: 10m
+      - alert: RaftKvApplicationBacklog
+        expr: raftkv_commit_index - raftkv_applied_index > 128
+        for: 2m
         labels:
           severity: warning
         annotations:
-          summary: "Append latency p99 above 50ms (sustained)"
+          summary: "Application backlog on RaftKV node {{ $labels.node_id }}"
+          description: "Inspect storage health and application errors; the threshold is an example to tune for the workload."

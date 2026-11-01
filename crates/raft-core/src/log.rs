@@ -41,17 +41,27 @@ pub struct Entry {
 
 impl Entry {
     /// Build a normal command entry.
-    pub fn normal(term: Term, index: LogIndex, data: Vec<u8>) -> Self {
-        Self { term, index, kind: EntryKind::Normal, data }
+    pub const fn normal(term: Term, index: LogIndex, data: Vec<u8>) -> Self {
+        Self {
+            term,
+            index,
+            kind: EntryKind::Normal,
+            data,
+        }
     }
 
     /// Build a no-op entry.
-    pub fn noop(term: Term, index: LogIndex) -> Self {
-        Self { term, index, kind: EntryKind::Noop, data: Vec::new() }
+    pub const fn noop(term: Term, index: LogIndex) -> Self {
+        Self {
+            term,
+            index,
+            kind: EntryKind::Noop,
+            data: Vec::new(),
+        }
     }
 
     /// Approximate serialized size for batching decisions.
-    pub fn approx_size(&self) -> usize {
+    pub const fn approx_size(&self) -> usize {
         24 + self.data.len()
     }
 }
@@ -67,7 +77,7 @@ pub struct RaftLog {
     /// Entries strictly *after* the snapshot point.
     entries: Vec<Entry>,
     /// Index of the last entry covered by the snapshot. Entries[0].index =
-    /// snapshot_last_index + 1.
+    /// `snapshot_last_index` + 1.
     snapshot_last_index: LogIndex,
     /// Term of the entry at `snapshot_last_index`.
     snapshot_last_term: Term,
@@ -75,32 +85,46 @@ pub struct RaftLog {
 
 impl RaftLog {
     /// Construct an empty log.
-    pub fn new() -> Self { Self::default() }
+    pub fn new() -> Self {
+        Self::default()
+    }
 
     /// Restore from a snapshot point with no live entries.
-    pub fn from_snapshot(last_index: LogIndex, last_term: Term) -> Self {
-        Self { entries: Vec::new(), snapshot_last_index: last_index, snapshot_last_term: last_term }
+    pub const fn from_snapshot(last_index: LogIndex, last_term: Term) -> Self {
+        Self {
+            entries: Vec::new(),
+            snapshot_last_index: last_index,
+            snapshot_last_term: last_term,
+        }
     }
 
     /// Index of the last entry (or snapshot tip if log is empty).
     pub fn last_index(&self) -> LogIndex {
-        self.entries.last().map_or(self.snapshot_last_index, |e| e.index)
+        self.entries
+            .last()
+            .map_or(self.snapshot_last_index, |e| e.index)
     }
 
     /// Term of the last entry (or snapshot tip).
     pub fn last_term(&self) -> Term {
-        self.entries.last().map_or(self.snapshot_last_term, |e| e.term)
+        self.entries
+            .last()
+            .map_or(self.snapshot_last_term, |e| e.term)
     }
 
-    /// First live index (i.e. snapshot_last_index + 1).
-    pub fn first_index(&self) -> LogIndex {
+    /// First live index (i.e. `snapshot_last_index` + 1).
+    pub const fn first_index(&self) -> LogIndex {
         self.snapshot_last_index + 1
     }
 
     /// Snapshot tip index.
-    pub fn snapshot_index(&self) -> LogIndex { self.snapshot_last_index }
+    pub const fn snapshot_index(&self) -> LogIndex {
+        self.snapshot_last_index
+    }
     /// Snapshot tip term.
-    pub fn snapshot_term(&self) -> Term { self.snapshot_last_term }
+    pub const fn snapshot_term(&self) -> Term {
+        self.snapshot_last_term
+    }
 
     /// Term at a given index, if known.
     pub fn term_at(&self, index: LogIndex) -> Option<Term> {
@@ -119,17 +143,23 @@ impl RaftLog {
 
     /// Borrow entry at `index` (live entries only).
     pub fn get(&self, index: LogIndex) -> Option<&Entry> {
-        if index <= self.snapshot_last_index { return None; }
+        if index <= self.snapshot_last_index {
+            return None;
+        }
         let off = (index - self.snapshot_last_index - 1) as usize;
         self.entries.get(off)
     }
 
     /// Slice of entries with indices in `[from, to)` (clamped to live range).
     pub fn slice(&self, from: LogIndex, to: LogIndex) -> &[Entry] {
-        if to <= from || from > self.last_index() { return &[]; }
+        if to <= from || from > self.last_index() {
+            return &[];
+        }
         let lo_idx = from.max(self.snapshot_last_index + 1);
         let hi_idx = to.min(self.last_index() + 1);
-        if hi_idx <= lo_idx { return &[]; }
+        if hi_idx <= lo_idx {
+            return &[];
+        }
         let lo = (lo_idx - self.snapshot_last_index - 1) as usize;
         let hi = (hi_idx - self.snapshot_last_index - 1) as usize;
         &self.entries[lo..hi]
@@ -137,15 +167,21 @@ impl RaftLog {
 
     /// Append entries in monotonic order. Caller guarantees indices line up.
     pub fn append(&mut self, mut new_entries: Vec<Entry>) {
-        if new_entries.is_empty() { return; }
+        if new_entries.is_empty() {
+            return;
+        }
         let expected = self.last_index() + 1;
         debug_assert_eq!(
             new_entries[0].index, expected,
-            "append must be contiguous: expected {} got {}", expected, new_entries[0].index
+            "append must be contiguous: expected {} got {}",
+            expected, new_entries[0].index
         );
         // Monotonic terms invariant
         if let Some(last) = self.entries.last() {
-            debug_assert!(new_entries[0].term >= last.term, "terms must be non-decreasing");
+            debug_assert!(
+                new_entries[0].term >= last.term,
+                "terms must be non-decreasing"
+            );
         }
         self.entries.append(&mut new_entries);
     }
@@ -181,19 +217,23 @@ impl RaftLog {
     }
 
     /// Number of live entries.
-    pub fn len(&self) -> usize { self.entries.len() }
+    pub const fn len(&self) -> usize {
+        self.entries.len()
+    }
     /// True if no live entries.
-    pub fn is_empty(&self) -> bool { self.entries.is_empty() }
+    pub const fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
 
     /// Determine whether a candidate's log is at least as up-to-date as ours
     /// (Raft §5.4.1).
     pub fn is_up_to_date(&self, last_log_index: LogIndex, last_log_term: Term) -> bool {
         let our_term = self.last_term();
         let our_index = self.last_index();
-        if last_log_term != our_term {
-            last_log_term > our_term
-        } else {
+        if last_log_term == our_term {
             last_log_index >= our_index
+        } else {
+            last_log_term > our_term
         }
     }
 }

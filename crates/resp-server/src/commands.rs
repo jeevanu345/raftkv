@@ -61,7 +61,11 @@ pub enum ClientCommand {
 }
 
 fn extract_bulk(f: &RespFrame) -> Option<&[u8]> {
-    if let RespFrame::Bulk(Some(b)) = f { Some(b.as_slice()) } else { None }
+    if let RespFrame::Bulk(Some(b)) = f {
+        Some(b.as_slice())
+    } else {
+        None
+    }
 }
 
 fn upper(b: &[u8]) -> String {
@@ -69,12 +73,15 @@ fn upper(b: &[u8]) -> String {
 }
 
 /// Parse a top-level RESP frame as a client command.
+#[allow(clippy::manual_is_multiple_of)] // Keep this parser compatible with Rust 1.75.
 pub fn parse(frame: &RespFrame) -> ClientCommand {
     let parts: Vec<&[u8]> = match frame {
         RespFrame::Array(items) => items.iter().filter_map(extract_bulk).collect(),
         _ => return ClientCommand::Unknown("expected array".into()),
     };
-    if parts.is_empty() { return ClientCommand::Unknown("empty".into()); }
+    if parts.is_empty() {
+        return ClientCommand::Unknown("empty".into());
+    }
     let cmd = upper(parts[0]);
     let args = &parts[1..];
     match cmd.as_str() {
@@ -87,13 +94,19 @@ pub fn parse(frame: &RespFrame) -> ClientCommand {
             while i < args.len() {
                 match upper(args[i]).as_str() {
                     "EX" if i + 1 < args.len() => {
-                        if let Ok(n) = std::str::from_utf8(args[i+1]).unwrap_or("").parse::<u64>() {
+                        if let Ok(n) = std::str::from_utf8(args[i + 1])
+                            .unwrap_or("")
+                            .parse::<u64>()
+                        {
                             ex = Some(n);
                         }
                         i += 2;
                     }
                     "PX" if i + 1 < args.len() => {
-                        if let Ok(n) = std::str::from_utf8(args[i+1]).unwrap_or("").parse::<u64>() {
+                        if let Ok(n) = std::str::from_utf8(args[i + 1])
+                            .unwrap_or("")
+                            .parse::<u64>()
+                        {
                             ex = Some(n / 1000);
                         }
                         i += 2;
@@ -101,10 +114,16 @@ pub fn parse(frame: &RespFrame) -> ClientCommand {
                     _ => i += 1,
                 }
             }
-            ClientCommand::Set { key: args[0].to_vec(), value: args[1].to_vec(), ex_seconds: ex }
+            ClientCommand::Set {
+                key: args[0].to_vec(),
+                value: args[1].to_vec(),
+                ex_seconds: ex,
+            }
         }
         "DEL" if !args.is_empty() => ClientCommand::Del(args.iter().map(|b| b.to_vec()).collect()),
-        "EXISTS" if !args.is_empty() => ClientCommand::Exists(args.iter().map(|b| b.to_vec()).collect()),
+        "EXISTS" if !args.is_empty() => {
+            ClientCommand::Exists(args.iter().map(|b| b.to_vec()).collect())
+        }
         "INCR" if args.len() == 1 => ClientCommand::Incr(args[0].to_vec()),
         "DECR" if args.len() == 1 => ClientCommand::Decr(args[0].to_vec()),
         "MSET" if !args.is_empty() && args.len() % 2 == 0 => {
@@ -114,10 +133,18 @@ pub fn parse(frame: &RespFrame) -> ClientCommand {
             }
             ClientCommand::MSet(pairs)
         }
-        "MGET" if !args.is_empty() => ClientCommand::MGet(args.iter().map(|b| b.to_vec()).collect()),
+        "MGET" if !args.is_empty() => {
+            ClientCommand::MGet(args.iter().map(|b| b.to_vec()).collect())
+        }
         "EXPIRE" if args.len() == 2 => {
-            let secs = std::str::from_utf8(args[1]).unwrap_or("").parse::<u64>().unwrap_or(0);
-            ClientCommand::Expire { key: args[0].to_vec(), seconds: secs }
+            let secs = std::str::from_utf8(args[1])
+                .unwrap_or("")
+                .parse::<u64>()
+                .unwrap_or(0);
+            ClientCommand::Expire {
+                key: args[0].to_vec(),
+                seconds: secs,
+            }
         }
         "TTL" if args.len() == 1 => ClientCommand::Ttl(args[0].to_vec()),
         "PERSIST" if args.len() == 1 => ClientCommand::Persist(args[0].to_vec()),
@@ -132,7 +159,10 @@ pub fn parse(frame: &RespFrame) -> ClientCommand {
         "COMMAND" => ClientCommand::Command,
         "CLIENT" => ClientCommand::ClientNoop,
         "SELECT" if args.len() == 1 => {
-            let n = std::str::from_utf8(args[0]).unwrap_or("0").parse::<u64>().unwrap_or(0);
+            let n = std::str::from_utf8(args[0])
+                .unwrap_or("0")
+                .parse::<u64>()
+                .unwrap_or(0);
             ClientCommand::Select(n)
         }
         "QUIT" => ClientCommand::Quit,

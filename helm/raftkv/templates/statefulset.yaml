@@ -5,6 +5,7 @@ metadata:
   labels:
     app.kubernetes.io/name: {{ include "raftkv.name" . }}
 spec:
+  podManagementPolicy: Parallel
   serviceName: {{ include "raftkv.fullname" . }}
   replicas: {{ .Values.replicas }}
   selector:
@@ -20,8 +21,11 @@ spec:
         - name: raftkv-server
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["/usr/bin/tini", "--", "/bin/sh", "-ec"]
           args:
-            - --config=/etc/raftkv/config.toml
+            - |
+              ordinal="${HOSTNAME##*-}"
+              exec /usr/local/bin/raftkv-server --config=/etc/raftkv/config.toml --id="$((ordinal + 1))"
           ports:
             - name: raft
               containerPort: {{ .Values.service.raftPort }}
@@ -47,6 +51,10 @@ spec:
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
       volumes:
+        {{- if not .Values.persistence.enabled }}
+        - name: data
+          emptyDir: {}
+        {{- end }}
         - name: config
           configMap:
             name: {{ include "raftkv.fullname" . }}-config

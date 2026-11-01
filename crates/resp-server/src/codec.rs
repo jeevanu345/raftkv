@@ -21,20 +21,38 @@ pub enum RespFrame {
 
 impl RespFrame {
     /// Convenience: build a simple OK reply.
-    pub fn ok() -> Self { Self::Simple("OK".into()) }
+    pub fn ok() -> Self {
+        Self::Simple("OK".into())
+    }
     /// Convenience: build a nil bulk reply.
-    pub fn nil() -> Self { Self::Bulk(None) }
+    pub fn nil() -> Self {
+        Self::Bulk(None)
+    }
     /// Convenience: build an error.
-    pub fn err(s: impl Into<String>) -> Self { Self::Error(s.into()) }
+    pub fn err(s: impl Into<String>) -> Self {
+        Self::Error(s.into())
+    }
     /// Convenience: build an integer.
-    pub fn int(n: i64) -> Self { Self::Integer(n) }
+    pub fn int(n: i64) -> Self {
+        Self::Integer(n)
+    }
     /// Convenience: build a bulk string.
-    pub fn bulk(b: impl Into<Vec<u8>>) -> Self { Self::Bulk(Some(b.into())) }
+    pub fn bulk(b: impl Into<Vec<u8>>) -> Self {
+        Self::Bulk(Some(b.into()))
+    }
 }
 
 /// Tokio codec implementing RESP2.
 #[derive(Default, Clone)]
 pub struct RespCodec;
+
+const MAX_FRAME_BYTES: usize = 8 * 1024 * 1024;
+const MAX_ARRAY_ITEMS: usize = 16 * 1024;
+const MAX_NESTING_DEPTH: usize = 32;
+
+fn invalid(message: &str) -> io::Error {
+    io::Error::new(io::ErrorKind::InvalidData, message)
+}
 
 fn find_crlf(buf: &[u8]) -> Option<usize> {
     buf.windows(2).position(|w| w == b"\r\n")
@@ -47,15 +65,20 @@ fn parse_int(buf: &[u8]) -> io::Result<i64> {
         .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "bad integer"))
 }
 
-fn try_decode(buf: &[u8]) -> io::Result<Option<(RespFrame, usize)>> {
-    if buf.is_empty() { return Ok(None); }
+fn try_decode(buf: &[u8], depth: usize) -> io::Result<Option<(RespFrame, usize)>> {
+    if depth > MAX_NESTING_DEPTH {
+        return Err(invalid("RESP nesting limit exceeded"));
+    }
+    if buf.is_empty() {
+        return Ok(None);
+    }
     match buf[0] {
-        b'+' | b'-' | b':' | b'$' | b'*' => decode_typed(buf),
+        b'+' | b'-' | b':' | b'$' | b'*' => decode_typed(buf, depth),
         _ => decode_inline(buf),
     }
 }
 
-fn decode_typed(buf: &[u8]) -> io::Result<Option<(RespFrame, usize)>> {
+fn decode_typed(buf: &[u8], depth: usize) -> io::Result<Option<(RespFrame, usize)>> {
     let kind = buf[0];
     let line_end = match find_crlf(&buf[1..]) {
         Some(p) => p + 1,
@@ -82,20 +105,42 @@ fn decode_typed(buf: &[u8]) -> io::Result<Option<(RespFrame, usize)>> {
         b'$' => {
             let n = parse_int(body)?;
             let after_hdr = line_end + 2;
-            if n < 0 { return Ok(Some((RespFrame::Bulk(None), after_hdr))); }
-            let n_us = n as usize;
-            if buf.len() < after_hdr + n_us + 2 { return Ok(None); }
+            if n == -1 {
+                return Ok(Some((RespFrame::Bulk(None), after_hdr)));
+            }
+            let n_us = usize::try_from(n).map_err(|_| invalid("invalid bulk length"))?;
+            if n_us > MAX_FRAME_BYTES {
+                return Err(invalid("bulk string exceeds frame limit"));
+            }
+            if buf.len() < after_hdr + n_us + 2 {
+                return Ok(None);
+            }
+            if &buf[after_hdr + n_us..after_hdr + n_us + 2] != b"\r\n" {
+                return Err(invalid("bulk string must end in CRLF"));
+            }
             let payload = buf[after_hdr..after_hdr + n_us].to_vec();
             Ok(Some((RespFrame::Bulk(Some(payload)), after_hdr + n_us + 2)))
         }
         b'*' => {
             let n = parse_int(body)?;
             let mut consumed = line_end + 2;
-            if n < 0 { return Ok(Some((RespFrame::Array(vec![]), consumed))); }
-            let mut out = Vec::with_capacity(n as usize);
-            for _ in 0..n {
-                match try_decode(&buf[consumed..])? {
-                    Some((f, c)) => { out.push(f); consumed += c; }
+            if n == -1 {
+                return Ok(Some((RespFrame::Array(vec![]), consumed)));
+            }
+            let count = usize::try_from(n).map_err(|_| invalid("invalid array length"))?;
+            if count > MAX_ARRAY_ITEMS {
+                return Err(invalid("array item limit exceeded"));
+            }
+            let mut out = Vec::with_capacity(count.min(64));
+            for _ in 0..count {
+                match try_decode(&buf[consumed..], depth + 1)? {
+                    Some((f, c)) => {
+                        out.push(f);
+                        consumed += c;
+                        if consumed > MAX_FRAME_BYTES {
+                            return Err(invalid("RESP frame limit exceeded"));
+                        }
+                    }
                     None => return Ok(None),
                 }
             }
@@ -125,11 +170,15 @@ impl Decoder for RespCodec {
     type Error = io::Error;
 
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
-        match try_decode(src.as_ref())? {
+        match try_decode(src.as_ref(), 0)? {
             Some((frame, consumed)) => {
+                if consumed > MAX_FRAME_BYTES {
+                    return Err(invalid("RESP frame limit exceeded"));
+                }
                 src.advance(consumed);
                 Ok(Some(frame))
             }
+            None if src.len() > MAX_FRAME_BYTES => Err(invalid("RESP frame limit exceeded")),
             None => Ok(None),
         }
     }
@@ -166,7 +215,9 @@ fn encode_into(frame: &RespFrame, out: &mut BytesMut) {
             out.put_u8(b'*');
             out.extend_from_slice(arr.len().to_string().as_bytes());
             out.put_slice(b"\r\n");
-            for f in arr { encode_into(f, out); }
+            for f in arr {
+                encode_into(f, out);
+            }
         }
     }
 }
@@ -213,10 +264,50 @@ mod tests {
         match f {
             RespFrame::Array(parts) => {
                 assert_eq!(parts.len(), 1);
-                if let RespFrame::Bulk(Some(b)) = &parts[0] { assert_eq!(b, b"PING"); }
-                else { panic!("not bulk"); }
+                if let RespFrame::Bulk(Some(b)) = &parts[0] {
+                    assert_eq!(b, b"PING");
+                } else {
+                    panic!("not bulk");
+                }
             }
             _ => panic!("not array"),
         }
+    }
+
+    #[test]
+    fn rejects_unbounded_lengths_and_malformed_bulk_terminators() {
+        for bytes in [
+            b"*9223372036854775807\r\n".as_slice(),
+            b"$9223372036854775807\r\n",
+            b"$-2\r\n",
+            b"*-2\r\n",
+            b"$3\r\nabcXX",
+        ] {
+            assert!(RespCodec.decode(&mut BytesMut::from(bytes)).is_err());
+        }
+    }
+
+    #[test]
+    fn rejects_deep_recursion_and_oversized_incomplete_input() {
+        let nested = format!("{}+OK\r\n", "*1\r\n".repeat(MAX_NESTING_DEPTH + 1));
+        assert!(RespCodec
+            .decode(&mut BytesMut::from(nested.as_bytes()))
+            .is_err());
+        let mut input = BytesMut::from(vec![b'A'; MAX_FRAME_BYTES + 1].as_slice());
+        assert!(RespCodec.decode(&mut input).is_err());
+    }
+
+    #[test]
+    fn fragmented_bulk_and_pipelined_frames_keep_exact_boundaries() {
+        let mut codec = RespCodec;
+        let mut input = BytesMut::from(b"$5\r\nhel".as_slice());
+        assert!(codec.decode(&mut input).unwrap().is_none());
+        input.extend_from_slice(b"lo\r\n:42\r\n");
+        assert_eq!(
+            codec.decode(&mut input).unwrap(),
+            Some(RespFrame::bulk(b"hello"))
+        );
+        assert_eq!(codec.decode(&mut input).unwrap(), Some(RespFrame::int(42)));
+        assert!(input.is_empty());
     }
 }

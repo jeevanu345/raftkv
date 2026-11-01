@@ -4,6 +4,7 @@ metadata:
   name: {{ include "raftkv.fullname" . }}-config
 data:
   config.toml: |
+    # Overridden by --id from the StatefulSet's zero-based ordinal + 1.
     id = 1
     raft_listen   = "0.0.0.0:{{ .Values.service.raftPort }}"
     client_listen = "0.0.0.0:{{ .Values.service.clientPort }}"

@@ -21,7 +21,8 @@ pub trait CommandHandler: Send + Sync + 'static {
     /// Read-index → wait until applied >= read_index → execute closure on the
     /// state machine.
     async fn linearizable_read<F>(&self, f: F) -> Result<RespFrame, ProposeFailure>
-    where F: FnOnce(&KvStateMachine) -> RespFrame + Send + 'static;
+    where
+        F: FnOnce(&KvStateMachine) -> RespFrame + Send + 'static;
     /// Whether this node is currently the leader.
     fn is_leader(&self) -> bool;
     /// Build the INFO string.
@@ -74,50 +75,83 @@ pub async fn dispatch<H: CommandHandler + ?Sized>(
         ClientCommand::Select(_) => RespFrame::ok(),
         ClientCommand::Command => RespFrame::Array(vec![]),
         ClientCommand::ClientNoop => RespFrame::ok(),
-        ClientCommand::Info(section) => RespFrame::Bulk(Some(handler.info(section.as_deref()).into_bytes())),
+        ClientCommand::Info(section) => {
+            RespFrame::Bulk(Some(handler.info(section.as_deref()).into_bytes()))
+        }
         ClientCommand::ClusterNodes => RespFrame::Bulk(Some(handler.cluster_nodes().into_bytes())),
-        ClientCommand::ClusterInfo => RespFrame::Bulk(Some(b"cluster_enabled:1\r\ncluster_state:ok\r\n".to_vec())),
-        ClientCommand::DbSize => match handler.linearizable_read(|sm| RespFrame::int(sm.len() as i64)).await {
+        ClientCommand::ClusterInfo => {
+            RespFrame::Bulk(Some(b"cluster_enabled:1\r\ncluster_state:ok\r\n".to_vec()))
+        }
+        ClientCommand::DbSize => match handler
+            .linearizable_read(|sm| RespFrame::int(sm.len() as i64))
+            .await
+        {
             Ok(f) => f,
             Err(_) => RespFrame::err("ERR not leader or timeout"),
         },
         ClientCommand::Get(key) => {
-            match handler.linearizable_read(move |sm| match sm.get(&key) {
-                Ok(Some(v)) => RespFrame::Bulk(Some(v)),
-                Ok(None) => RespFrame::nil(),
-                Err(e) => RespFrame::err(format!("ERR {e}")),
-            }).await {
+            match handler
+                .linearizable_read(move |sm| match sm.get(&key) {
+                    Ok(Some(v)) => RespFrame::Bulk(Some(v)),
+                    Ok(None) => RespFrame::nil(),
+                    Err(e) => RespFrame::err(format!("ERR {e}")),
+                })
+                .await
+            {
                 Ok(f) => f,
-                Err(ProposeFailure::NotLeader { hint }) => RespFrame::err(format!("MOVED 0 {}", hint.unwrap_or_default())),
+                Err(ProposeFailure::NotLeader { hint }) => {
+                    RespFrame::err(format!("MOVED 0 {}", hint.unwrap_or_default()))
+                }
                 Err(_) => RespFrame::err("ERR timeout"),
             }
         }
         ClientCommand::MGet(keys) => {
-            match handler.linearizable_read(move |sm| match sm.mget(&keys) {
-                Ok(vs) => RespFrame::Array(vs.into_iter().map(RespFrame::Bulk).collect()),
-                Err(e) => RespFrame::err(format!("ERR {e}")),
-            }).await {
+            match handler
+                .linearizable_read(move |sm| match sm.mget(&keys) {
+                    Ok(vs) => RespFrame::Array(vs.into_iter().map(RespFrame::Bulk).collect()),
+                    Err(e) => RespFrame::err(format!("ERR {e}")),
+                })
+                .await
+            {
                 Ok(f) => f,
                 Err(_) => RespFrame::err("ERR timeout"),
             }
         }
         ClientCommand::Exists(keys) => {
-            match handler.linearizable_read(move |sm| {
-                let mut n = 0i64;
-                for k in &keys {
-                    if sm.exists(k).unwrap_or(false) { n += 1; }
-                }
-                RespFrame::int(n)
-            }).await {
+            match handler
+                .linearizable_read(move |sm| {
+                    let mut n = 0i64;
+                    for k in &keys {
+                        if sm.exists(k).unwrap_or(false) {
+                            n += 1;
+                        }
+                    }
+                    RespFrame::int(n)
+                })
+                .await
+            {
                 Ok(f) => f,
                 Err(_) => RespFrame::err("ERR timeout"),
             }
         }
-        ClientCommand::Set { key, value, ex_seconds } => {
+        ClientCommand::Set {
+            key,
+            value,
+            ex_seconds,
+        } => {
             let expire_at_ms = ex_seconds.map(|s| now_ms + s * 1000);
-            match handler.propose(Command::Set { key, value, expire_at_ms }).await {
+            match handler
+                .propose(Command::Set {
+                    key,
+                    value,
+                    expire_at_ms,
+                })
+                .await
+            {
                 Ok(r) => response_to_frame(r),
-                Err(ProposeFailure::NotLeader { hint }) => RespFrame::err(format!("MOVED 0 {}", hint.unwrap_or_default())),
+                Err(ProposeFailure::NotLeader { hint }) => {
+                    RespFrame::err(format!("MOVED 0 {}", hint.unwrap_or_default()))
+                }
                 Err(e) => RespFrame::err(format!("ERR {e}")),
             }
         }

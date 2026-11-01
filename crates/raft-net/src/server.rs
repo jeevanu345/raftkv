@@ -15,9 +15,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use tonic::{Request, Response, Status};
 
-use crate::convert::{
-    append_request_from_pb, snapshot_from_chunks, vote_request_from_pb,
-};
+use crate::convert::{append_request_from_pb, snapshot_from_chunks, vote_request_from_pb};
 use crate::pb::raft as pb;
 use crate::pb::raft::raft_server::Raft as RaftService;
 use raft_core::Message;
@@ -40,14 +38,35 @@ pub struct RaftServer {
 impl RaftServer {
     /// Construct a new server attached to a processor.
     pub fn new(local_id: u64, processor: Arc<dyn MessageProcessor>) -> Self {
-        Self { processor, local_id }
+        Self {
+            processor,
+            local_id,
+        }
     }
 }
 
-fn unwrap_append_response(msg: Option<Message>, term_fallback: u64, last_log_index: u64, request_id: Vec<u8>) -> pb::AppendEntriesResponse {
-    if let Some(Message::AppendEntriesResponse { term, success, conflict_index, conflict_term, last_log_index, request_id: rid, .. }) = msg {
+fn unwrap_append_response(
+    msg: Option<Message>,
+    term_fallback: u64,
+    last_log_index: u64,
+    request_id: Vec<u8>,
+) -> pb::AppendEntriesResponse {
+    if let Some(Message::AppendEntriesResponse {
+        term,
+        success,
+        conflict_index,
+        conflict_term,
+        last_log_index,
+        request_id: rid,
+        ..
+    }) = msg
+    {
         pb::AppendEntriesResponse {
-            term, success, conflict_index, conflict_term, last_log_index,
+            term,
+            success,
+            conflict_index,
+            conflict_term,
+            last_log_index,
             request_id: rid.to_le_bytes().to_vec(),
         }
     } else {
@@ -62,14 +81,29 @@ fn unwrap_append_response(msg: Option<Message>, term_fallback: u64, last_log_ind
     }
 }
 
-fn unwrap_vote_response(msg: Option<Message>, term_fallback: u64, request_id: Vec<u8>) -> pb::RequestVoteResponse {
-    if let Some(Message::RequestVoteResponse { term, vote_granted, request_id: rid, .. }) = msg {
+fn unwrap_vote_response(
+    msg: Option<Message>,
+    term_fallback: u64,
+    request_id: Vec<u8>,
+) -> pb::RequestVoteResponse {
+    if let Some(Message::RequestVoteResponse {
+        term,
+        vote_granted,
+        request_id: rid,
+        ..
+    }) = msg
+    {
         pb::RequestVoteResponse {
-            term, vote_granted,
+            term,
+            vote_granted,
             request_id: rid.to_le_bytes().to_vec(),
         }
     } else {
-        pb::RequestVoteResponse { term: term_fallback, vote_granted: false, request_id }
+        pb::RequestVoteResponse {
+            term: term_fallback,
+            vote_granted: false,
+            request_id,
+        }
     }
 }
 
@@ -100,7 +134,9 @@ impl RaftService for RaftServer {
         let from = req.candidate_id;
         let msg = vote_request_from_pb(req);
         let resp_msg = self.processor.process(from, msg).await;
-        Ok(Response::new(unwrap_vote_response(resp_msg, term, request_id)))
+        Ok(Response::new(unwrap_vote_response(
+            resp_msg, term, request_id,
+        )))
     }
 
     async fn pre_vote(
@@ -122,13 +158,22 @@ impl RaftService for RaftServer {
         let mut term = 0;
         let mut request_id = vec![];
         if let Some(msg) = snapshot_from_chunks(chunks) {
-            if let Message::InstallSnapshot { from, term: t, request_id: rid, .. } = &msg {
+            if let Message::InstallSnapshot {
+                from,
+                term: t,
+                request_id: rid,
+                ..
+            } = &msg
+            {
                 term = *t;
                 request_id = rid.to_le_bytes().to_vec();
                 let _ = self.processor.process(*from, msg).await;
             }
         }
-        Ok(Response::new(pb::InstallSnapshotResponse { term, request_id }))
+        Ok(Response::new(pb::InstallSnapshotResponse {
+            term,
+            request_id,
+        }))
     }
 
     async fn timeout_now(
@@ -137,7 +182,10 @@ impl RaftService for RaftServer {
     ) -> Result<Response<pb::TimeoutNowResponse>, Status> {
         let req = request.into_inner();
         let from = req.leader_id;
-        let msg = Message::TimeoutNow { from, term: req.term };
+        let msg = Message::TimeoutNow {
+            from,
+            term: req.term,
+        };
         let _ = self.processor.process(from, msg).await;
         Ok(Response::new(pb::TimeoutNowResponse { accepted: true }))
     }
