@@ -1,5 +1,8 @@
 <p align="center">
-  <img src="logo.png" alt="RaftKV" width="240" />
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/brand/raftkv-logo-dark.png" />
+    <img src="docs/brand/raftkv-logo-light.png" alt="RaftKV — Raft-replicated key-value store" width="420" />
+  </picture>
 </p>
 
 <h1 align="center">RaftKV</h1>
@@ -25,7 +28,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/overview.png" alt="RaftKV operator console: cluster overview showing node 2 as leader in term 4, three reachable node APIs, commit index 19, and the three-node topology" width="100%" />
+  <img src="docs/screenshots/overview.png" alt="RaftKV operator console: cluster overview in light mode showing node 3 as leader in term 5, three reachable node APIs, commit index 20, and the three-node topology" width="100%" />
 </p>
 
 RaftKV separates a deterministic consensus core from disk, networking, timers and client handling. Nodes replicate commands over gRPC, persist a CRC32C-framed log and hard state, and apply committed operations to a sled-backed KV store. The React console exposes real node diagnostics, replication progress, local data inspection and leader-routed mutations.
@@ -75,7 +78,7 @@ Logs, configs, PID files and data remain under `.run/` for restart. Pre-existing
 
 ## The operator console
 
-The console is a local Vite app that proxies `/api` to each node's JSON API on loopback. Every number on screen is an **independent HTTP sample** from a node. The console says so wherever it matters, and never presents API reachability as proof of quorum. All screenshots below come from a real three-node cluster started with `./scripts/run_cluster.sh`.
+The console is a local Vite app that proxies `/api` to each node's JSON API on loopback. Every number on screen is an **independent HTTP sample** from a node. The console says so wherever it matters, and never presents API reachability as proof of quorum. All screenshots below are light mode, captured at 2× (desktop) and 3× (mobile) from a real three-node cluster started with `./scripts/run_cluster.sh`, signed in with a local profile.
 
 ### Sign in
 
@@ -90,7 +93,7 @@ A local operator profile (name and email) personalizes the workspace. It lives i
 Reachable endpoints, the observed leader and term, the committed index, and one-click jumps into each node, the keyspace, replication and telemetry.
 
 <p align="center">
-  <img src="docs/screenshots/home.png" alt="Home pane: local cluster card with 3 of 3 endpoints reachable, node 2 leading in term 4, committed index 19, per-node endpoints, and shortcuts to the keyspace, replication and telemetry" width="100%" />
+  <img src="docs/screenshots/home.png" alt="Home pane: local cluster card with 3 of 3 endpoints reachable, node 3 leading in term 5, committed index 20, per-node endpoints, and shortcuts to the keyspace, replication and telemetry" width="100%" />
 </p>
 
 ### Cluster overview
@@ -115,7 +118,7 @@ The node observation matrix, per-node consensus state, log and snapshot boundari
 <details>
 <summary><strong>Full page, including peer progress and the replicated log</strong></summary>
 <p align="center">
-  <img src="docs/screenshots/nodes-full.png" alt="Full nodes page including peer replication progress from the leader, membership and endpoints, the replicated log inspector with 19 entries, and the deterministic state fingerprint" width="100%" />
+  <img src="docs/screenshots/nodes-full.png" alt="Full nodes page including peer replication progress from the leader, membership and endpoints, the replicated log inspector with 20 entries, and the deterministic state fingerprint" width="100%" />
 </p>
 </details>
 
@@ -124,7 +127,7 @@ The node observation matrix, per-node consensus state, log and snapshot boundari
 Browse and filter a node's **local applied state**, inspect a value with its source node and applied index, and propose a `SET` or `DELETE`. Mutations are always routed to the observed leader.
 
 <p align="center">
-  <img src="docs/screenshots/keyspace.png" alt="Keyspace explorer: seven keys listed from node 1 at applied index 19, a write form routed to leader node 2, and the value inspector showing user:1001:name = Ada Lovelace" width="100%" />
+  <img src="docs/screenshots/keyspace.png" alt="Keyspace explorer: seven keys listed from node 1, a write form routed to the observed leader, and the value inspector showing user:1001:name = Ada Lovelace" width="100%" />
 </p>
 
 ### Telemetry & events
@@ -132,7 +135,7 @@ Browse and filter a node's **local applied state**, inspect a value with its sou
 Proposal and Raft send rates computed from runtime counter deltas, status-API latency, commit and applied progression, all ten runtime counters, and a filterable history of browser-observed events. The Prometheus endpoint and the bundled Grafana dashboard and alerts cover persistent monitoring.
 
 <p align="center">
-  <img src="docs/screenshots/telemetry.png" alt="Telemetry: commit rate, Raft send rate of 39.6 per second, 22 ms status round trip and 18 session samples, with commit, applied, latency and pending-proposal charts" width="100%" />
+  <img src="docs/screenshots/telemetry.png" alt="Telemetry: commit and Raft send rates, status round trip and session samples, with commit, applied, latency and pending-proposal charts" width="100%" />
 </p>
 
 ### Architecture report & runbook
@@ -150,18 +153,18 @@ A source-grounded field guide: the request and effect pipeline, crate layers, th
   </tr>
 </table>
 
-### Keyboard, light appearance and mobile
+### Keyboard, dark appearance and mobile
 
-<kbd>⌘</kbd> <kbd>K</kbd> / <kbd>Ctrl</kbd> <kbd>K</kbd> opens tool search, navigated with arrows, <kbd>Enter</kbd> and <kbd>Esc</kbd>. Every pane has a bookmarkable URL fragment. The appearance setting persists locally, and reduced-motion preferences are respected.
+<kbd>⌘</kbd> <kbd>K</kbd> / <kbd>Ctrl</kbd> <kbd>K</kbd> opens tool search, navigated with arrows, <kbd>Enter</kbd> and <kbd>Esc</kbd>. Every pane has a bookmarkable URL fragment. Light and dark appearances persist locally; the dark appearance uses neutral graphite grays with teal reserved for actions and leadership. Reduced-motion preferences are respected.
 
 <table>
   <tr>
     <td width="50%"><img src="docs/screenshots/command-menu.png" alt="Command menu filtered by 'rep', listing Nodes & replication, Architecture report and Connections & runbook" /></td>
-    <td width="50%"><img src="docs/screenshots/overview-light.png" alt="Cluster overview in the light appearance" /></td>
+    <td width="50%"><img src="docs/screenshots/overview-dark.png" alt="Cluster overview in the graphite-gray dark appearance" /></td>
   </tr>
   <tr>
     <td align="center"><sub>Tool search (⌘K)</sub></td>
-    <td align="center"><sub>Light appearance</sub></td>
+    <td align="center"><sub>Dark appearance</sub></td>
   </tr>
 </table>
 
@@ -272,6 +275,10 @@ The live integration suite uses real processes and covers election, replication,
 Docker Compose and Helm examples are available. Helm derives unique node IDs from StatefulSet ordinals and permits parallel peer bootstrap; render/live Kubernetes validation is still required. Client services distribute connections across followers as well as leaders, so client routing must handle leadership explicitly. Keep unauthenticated operator APIs on loopback or an authenticated restricted network.
 
 Remaining priorities are transactional KV application and recovery, complete snapshots, robust online membership, full expiry semantics, security, and reproducible benchmarks/soak testing. Client timeout outcomes are ambiguous and retries are not exactly once. See the report before relying on the project for durable application data.
+
+## Brand
+
+The mark is an **R** built from the replicated log: three stacked entries form the stem (newest brightest), the committed state forms the teal bowl, and the leg carries replication to followers. Sources: [`ui/public/mark.svg`](ui/public/mark.svg), with PNG renders in [`docs/brand/`](docs/brand/).
 
 ## Contributing and license
 

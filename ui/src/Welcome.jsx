@@ -52,7 +52,7 @@ export default function Welcome({ onContinue, theme, onToggleTheme }) {
     <div className="welcome-shell">
       <a className="skip-link" href="#welcome-main">Skip to content</a>
       <header className="welcome-header">
-        <a className="welcome-brand" href="#welcome-main" aria-label="RaftKV Console home"><img src="/mark.png" alt="" width={36} height={36} /><span>RaftKV <small>Console</small></span></a>
+        <a className="welcome-brand" href="#welcome-main" aria-label="RaftKV Console home"><img src="/mark.svg" alt="" width={36} height={36} /><span>RaftKV <small>Console</small></span></a>
         <button type="button" className="welcome-theme" onClick={onToggleTheme} aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`}>
           {theme === 'dark' ? <Sun size={17} /> : <Moon size={17} />}<span>{theme === 'dark' ? 'Light' : 'Dark'} theme</span>
         </button>

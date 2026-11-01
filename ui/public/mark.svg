@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="RaftKV">
+  <title>RaftKV</title>
+  <defs>
+    <linearGradient id="rk-bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2a2a2a"/>
+      <stop offset="1" stop-color="#121212"/>
+    </linearGradient>
+    <linearGradient id="rk-commit" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#86ebf2"/>
+      <stop offset="1" stop-color="#2eb2c3"/>
+    </linearGradient>
+  </defs>
+  <rect width="1024" height="1024" rx="228" fill="url(#rk-bg)"/>
+  <rect x="3" y="3" width="1018" height="1018" rx="225" fill="none" stroke="#ffffff" stroke-opacity=".06" stroke-width="6"/>
+  <!-- Stem: the replicated log, newest entry brightest -->
+  <rect x="290" y="250" width="138" height="154" rx="44" fill="#ffffff" fill-opacity=".94"/>
+  <rect x="290" y="436" width="138" height="154" rx="44" fill="#ffffff" fill-opacity=".62"/>
+  <rect x="290" y="622" width="138" height="154" rx="44" fill="#ffffff" fill-opacity=".32"/>
+  <!-- Bowl: the committed state -->
+  <path d="M460 250h112a170 170 0 0 1 0 340H460z" fill="url(#rk-commit)"/>
+  <!-- Leg: replication to followers -->
+  <path d="M554 662L636 724" stroke="#5fd0dc" stroke-opacity=".55" stroke-width="104" stroke-linecap="round"/>
+</svg>

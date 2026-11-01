@@ -151,7 +151,7 @@ function App({ user, onSignOut, theme, setTheme }) {
     <div className={`sidebar-rail ${mobileNav ? "nav-open" : ""}`}>
     <aside className={`sidebar ${mobileNav ? "nav-open" : ""}`}>
       <a className="brand" href="#home">
-        <img src="/mark.png" alt="" width="36" height="36" />
+        <img src="/mark.svg" alt="" width="36" height="36" />
         <div>
           <strong>RaftKV</strong>
           <span>Operator console</span>

@@ -59,7 +59,7 @@ function Detail({ rows }) {
         {label}
       </dt>
       <dd>
-        {value}
+        {typeof value === "string" && /^[a-z]/.test(value) ? value.charAt(0).toUpperCase() + value.slice(1) : value}
       </dd>
     </div>)}
   </dl>;
